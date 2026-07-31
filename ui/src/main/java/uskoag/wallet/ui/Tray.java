@@ -23,11 +23,16 @@ public final class Tray {
     private Tray() {
     }
 
-    public static void install(Runnable onOpen, Runnable onLock) {
+    public static void install(Runnable onOpen, Runnable onLock, Runnable onRevokeAll) {
         if (!SystemTray.isSupported()) return;
         var menu = new PopupMenu();
         menu.add(item("Open wallet", onOpen));
         menu.add(item("Lock now", onLock));
+        // Here as well as in the Permissions tab, because this is a thing worth doing casually and
+        // periodically rather than deliberately: it only costs a click each to grant them again, and it
+        // touches nothing at Google. An action whose worst case is "you approve a few documents again"
+        // should be no further away than the one whose worst case is locking yourself out of a batch.
+        menu.add(item("Revoke all permissions", onRevokeAll));
         menu.addSeparator();
         menu.add(item("Quit", () -> {
             Platform.exit();

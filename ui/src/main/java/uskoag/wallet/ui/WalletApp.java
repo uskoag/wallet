@@ -36,7 +36,7 @@ public final class WalletApp extends Application {
             return;
         }
 
-        Tray.install(() -> MainWindow.show(wallet.core), this::lock);
+        Tray.install(() -> MainWindow.show(wallet.core), this::lock, this::revokeAll);
 
         // Nothing on screen at startup, by default. The main window was appearing on every launch and
         // being closed again immediately, which is a step added to a thing that runs at boot; and the
@@ -65,6 +65,41 @@ public final class WalletApp extends Application {
                         }
                     });
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Drops every standing permission. Safe by construction, and worth saying why so it stays that way:
+     * it removes approvals, never consents. Google keeps every grant the accounts were given, so nothing
+     * has to be re-authorised in a browser — each document simply asks once more the next time it is
+     * touched. The confirmation exists to say that, not to discourage doing it.
+     */
+    private void revokeAll() {
+        if (!wallet.core.keyring.unlocked()) {
+            Tray.note(uskoag.wallet.wire.Brand.NAME, "Locked, so there is nothing live to revoke."
+                    + " Standing permissions are already unusable until it is unlocked.");
+            return;
+        }
+        try {
+            var n = wallet.core.policy.rules().size();
+            if (n == 0) {
+                Tray.note(uskoag.wallet.wire.Brand.NAME, "No standing permissions to revoke.");
+                return;
+            }
+            if (!Confirm.ask("Revoke all permissions",
+                    "Revoke all " + n + " standing permission(s)?\n\n"
+                            + "Every tool goes back to asking on first touch, which costs one click each.\n\n"
+                            + "Nothing is revoked at Google. The accounts keep every consent they were"
+                            + " given, so no browser sign-in is needed again.",
+                    "Revoke all " + n, "Keep them")) {
+                return;
+            }
+            wallet.core.policy.clear();
+            MainWindow.hide();
+            Tray.note(uskoag.wallet.wire.Brand.NAME, n + " permission(s) revoked. Google's grants are"
+                    + " untouched.");
+        } catch (Exception e) {
+            Tray.note(uskoag.wallet.wire.Brand.NAME, "Could not revoke: " + e.getMessage());
         }
     }
 
