@@ -1,0 +1,82 @@
+uskoag-walletcli - the command line face of the uskoag wallet
+
+The wallet holds every refresh token and client secret on this machine and releases neither. Client
+tools get an opaque handle and a loopback URL, so no tool ever holds a Google credential. Every call
+they then make is classified and policed where the request actually is.
+
+  status                            is a wallet running, is it unlocked, how many accounts
+  unlock                            type the passphrase (hidden; never a flag)
+  lock                              drop every live handle immediately
+  passwd                            change the passphrase; audit history is unaffected
+  orgs                              the OAuth clients: one per organisation
+  accounts                          the inventory: which accounts, their scopes, which tools are ready
+  profiles                          the tool profiles this wallet knows
+
+  org add <id> --file <credentials.json> [--domains a.org,b.org] [--label "..."]
+                                    store an organisation's OAuth client. Per ORG, not per tool and
+                                    not per account - a credentials.json is a Cloud project's client,
+                                    and one per org is what an unverified app leaves available given
+                                    the 100-user cap and a Workspace admin's power to refuse a
+                                    foreign client ID. Domains let later accounts skip --org
+  login <email> [--org <id>] [--profiles gsheets,gmail] [--port 8888]
+                                    run browser consent. Requests EVERY tool's scopes by default:
+                                    one round trip instead of one per tool, and it avoids the old
+                                    trap where a second tool reused the first one's narrower token
+                                    and then failed with an opaque 403
+  import --org <id> [--profiles gsheets,gmail] [--accounts a@x,b@x] [--root <dir>] [--delete-old]
+                                    migrate existing tokens_<md5> stores; prompts for the old
+                                    app-key. --profiles defaults to ALL of them, because one
+                                    account's tokens are scattered across one directory per tool;
+                                    they merge into one record with the union of their scopes.
+                                    With --delete-old the leaked app-key stops mattering, because a
+                                    passphrase that decrypts nothing is not a passphrase
+  export <email> [--raw]            an access token (sub-hour, relay-safe), or with --raw the full
+                                    credential behind a loud warning and an audit entry
+  forget <email>                    remove an account from the keyring
+
+  policy list                       the standing permissions
+  policy check --api sheets --resource <id> --tier read [--profile p] [--account e]
+                                    would this be allowed right now, without doing it
+  policy allow --api sheets --resource <id> --tier write [--minutes 60] [--ops 50] [--match exact]
+                                    ask for a standing rule; raises the same dialog a first touch
+                                    would have raised, because a process must not grant itself one
+  policy revoke <ruleId>            drop one rule
+  policy clear                      drop them all
+
+  audit [--limit 100]               what was actually attempted, denials included
+
+  backups                           credentials.json files kept outside the keyring
+  purgebackups                      delete them (do this once the wallet is settled)
+  reset                             passphrase gone: move the keyring aside and start a new one.
+                                    Lost - refresh tokens, standing permissions, audit detail.
+                                    Kept - every credentials.json, and the old keyring file itself
+
+The three levels, and why they are three
+  org      owns the OAuth client (client_id + client_secret). One credentials.json.
+  account  owns the refresh token. Keyed by email, because a refresh token authorises exactly one
+           Google account - there is no org-wide token short of a service account with domain-wide
+           delegation. You rarely type it: it is inferred when only one is stored.
+  profile  is NOT a storage key. It is a scope bundle a tool asks for, plus a label in the policy
+           and the audit. One consent covers every tool for an account.
+
+Tiers
+  read          list, search, get, download, export
+  mutate        create, update, append, draft, add slides
+  destructive   delete, trash, move or re-parent, clear an unbounded range, every permission change
+
+Notes
+  Secrets are never flags. The passphrase and any old app-key are read from a hidden console prompt,
+  so nothing lands in shell history or an agent transcript.
+
+  Browsing and search never prompt. The first touch of a new document prompts once, and the answer
+  becomes a standing rule. Only the irreversible tier keeps asking, and it is bounded by a count
+  before a clock, because a time window bounds a human's session and does not bound a machine's.
+
+  Settings live in ~/uskoag/wallet/wallet.toml: readRequiresRule, mutateRequiresRule,
+  backupCredentialsJson, destructiveOps, destructiveMinutes, autoLockMinutes.
+
+  backupCredentialsJson is on while the wallet is new, and it is a real trade. It keeps a plain copy
+  of each credentials.json beside the keyring so a forgotten passphrase costs only the refresh tokens
+  and not a re-download from the Cloud console for every account. The cost is that the OAuth client
+  secret then sits on disk in the clear, which gives back half of what encrypting it bought. Set it to
+  false and run purgebackups once things are settled.

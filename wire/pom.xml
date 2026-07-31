@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.uskoag</groupId>
+        <artifactId>uskoag-wallet-parent</artifactId>
+        <version>1.0</version>
+    </parent>
+
+    <artifactId>uskoag-wallet-wire</artifactId>
+    <packaging>jar</packaging>
+
+    <description>Protocol records, the loopback client, the launcher, and the ServiceLoader-discovered
+        WalletCredentialSource that gservices picks up when a wallet is installed. Deliberately thin:
+        every CLI that wants wallet support puts this jar and nothing else on its classpath.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.uskoag</groupId>
+            <artifactId>uskoag-gservices-oauth</artifactId>
+            <version>${gservices.ver}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>${gson.ver}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The whole point of this module is that a CLI can carry it without inheriting the
+                 wallet. If ArcadeDB or the daemon ever leak in here, every CLI grows a database. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>wire-must-stay-thin</id>
+                        <phase>validate</phase>
+                        <goals><goal>enforce</goal></goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <excludes>
+                                        <exclude>com.arcadedb:*</exclude>
+                                        <exclude>io.github.uskoag:uskoag-wallet-daemon</exclude>
+                                        <exclude>org.openjfx:*</exclude>
+                                    </excludes>
+                                    <message>uskoag-wallet-wire ships inside every client CLI. No ArcadeDB,
+                                        no daemon, no JavaFX on this classpath.</message>
+                                </bannedDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

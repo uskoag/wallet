@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      No <parent>, and deliberately not a module of uskoag-gservices-parent. The wallet is an
+      application and gservices is a library; a library must not depend on an application, so the two
+      builds stay separate and the dependency arrow points from wallet to gservices, never back.
+
+      The directory currently sits inside the gservices checkout for convenience. It is self-contained:
+      moving it to C:\user\code\uskoag\wallet as its own git repository needs nothing but the move.
+    -->
+    <groupId>io.github.uskoag</groupId>
+    <artifactId>uskoag-wallet-parent</artifactId>
+    <version>1.0</version>
+    <packaging>pom</packaging>
+
+    <description>Parent POM and aggregator for uskoag-wallet: the credential wallet that holds every
+        refresh token and client secret, runs the OAuth consent flow, and reverse-proxies all Google
+        API traffic so a client process never holds a Google credential.</description>
+
+    <properties>
+        <!-- 25, not the 21 the sibling reactors use: DPAPI is reached through java.lang.foreign,
+             which is preview before 22 and would otherwise need enable-preview everywhere. -->
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Consumed from uskoag/gservices as installed artifacts, never as reactor siblings. -->
+        <gservices.ver>1.0</gservices.ver>
+
+        <google.api.client.ver>2.2.0</google.api.client.ver>
+        <google.oauth.client.jetty.ver>1.34.1</google.oauth.client.jetty.ver>
+
+        <!-- ArcadeDB 26.x calls com.google.gson.Strictness, absent before Gson 2.11. Pinning 2.14.0
+             here is free: this reactor is separate from gservices, which still sits on 2.10.1. -->
+        <arcadedb.ver>26.7.3</arcadedb.ver>
+        <gson.ver>2.14.0</gson.ver>
+
+        <javafx.ver>25.0.2</javafx.ver>
+        <luvjfx.ver>1.0-SNAPSHOT</luvjfx.ver>
+
+        <compiler.plugin.ver>3.13.0</compiler.plugin.ver>
+        <shade.plugin.ver>3.5.1</shade.plugin.ver>
+        <enforcer.plugin.ver>3.4.1</enforcer.plugin.ver>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${compiler.plugin.ver}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-shade-plugin</artifactId>
+                    <version>${shade.plugin.ver}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>${enforcer.plugin.ver}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <modules>
+        <module>wire</module>
+        <module>daemon</module>
+        <module>ui</module>
+        <module>cli</module>
+    </modules>
+</project>

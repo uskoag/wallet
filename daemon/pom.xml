@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.uskoag</groupId>
+        <artifactId>uskoag-wallet-parent</artifactId>
+        <version>1.0</version>
+    </parent>
+
+    <artifactId>uskoag-wallet-daemon</artifactId>
+    <packaging>jar</packaging>
+
+    <description>The wallet's engine: DPAPI-wrapped keyring, the OAuth consent flow, the policy rule
+        table, the streaming reverse proxy, sessions and budgets, and the ArcadeDB audit. Headless by
+        itself; the UI module embeds it and supplies the approval dialogs.</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.uskoag</groupId>
+            <artifactId>uskoag-wallet-wire</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.uskoag</groupId>
+            <artifactId>uskoag-gservices-oauth</artifactId>
+            <version>${gservices.ver}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.google.api-client</groupId>
+            <artifactId>google-api-client</artifactId>
+            <version>${google.api.client.ver}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.oauth-client</groupId>
+            <artifactId>google-oauth-client-jetty</artifactId>
+            <version>${google.oauth.client.jetty.ver}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>${gson.ver}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.arcadedb</groupId>
+            <artifactId>arcadedb-engine</artifactId>
+            <version>${arcadedb.ver}</version>
+        </dependency>
+    </dependencies>
+</project>
