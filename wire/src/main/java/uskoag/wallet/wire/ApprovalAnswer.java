@@ -13,6 +13,19 @@ public record ApprovalAnswer(boolean allowed, boolean remember, int ops, int min
         return new ApprovalAnswer(false, false, 0, 0, Match.EXACT, null);
     }
 
+    /**
+     * Nobody answered in time.
+     *
+     * <p>A refusal rather than a hang, and it has to arrive before the client's own read timeout, or the
+     * call dies while the dialog is still open — and then a click made minutes later writes a standing
+     * rule for a request that already failed, with nothing on screen to say so. A grant for a dead call
+     * is the worst outcome available here: it is a permission nobody knowingly gave.
+     */
+    public static ApprovalAnswer timedOut(int seconds) {
+        return new ApprovalAnswer(false, false, 0, 0, Match.EXACT,
+                "nobody answered the wallet within " + seconds + "s, so it was refused");
+    }
+
     /** One operation, nothing written down. The safe default when someone hits Enter without reading. */
     public static ApprovalAnswer once() {
         return new ApprovalAnswer(true, false, 1, 0, Match.EXACT, null);

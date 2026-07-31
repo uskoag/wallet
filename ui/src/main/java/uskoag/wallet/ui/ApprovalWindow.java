@@ -12,6 +12,7 @@ import uskoag.wallet.wire.Tier;
 
 import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -48,26 +49,42 @@ public final class ApprovalWindow {
     /** Enter lands here: bounded, useful, and never the widest thing on offer. */
     private static final Span DEFAULT_SPAN = Span.MONTH;
 
+    /**
+     * Deliberately under the client's 300s read timeout in {@code GrantInitializer}. The wallet has to
+     * give up first, or the call dies while this window is still open and a later click grants a rule
+     * for a request that no longer exists.
+     */
+    private static final int WAIT_SECONDS = 240;
+
     private ApprovalWindow() {
     }
 
     public static ApprovalAnswer ask(ApprovalAsk ask, int defaultOps, int defaultMinutes) {
         var out = new AtomicReference<>(ApprovalAnswer.deny());
         var done = new CountDownLatch(1);
+        var stage = new AtomicReference<Stage>();
 
-        javafx.application.Platform.runLater(() -> build(ask, defaultOps, answer -> {
+        javafx.application.Platform.runLater(() -> stage.set(build(ask, defaultOps, answer -> {
             out.set(answer);
             done.countDown();
-        }));
+        })));
         try {
-            done.await();
+            if (!done.await(WAIT_SECONDS, TimeUnit.SECONDS)) {
+                // The client is gone by now, so leaving this on screen would let a click minutes later
+                // write a rule for a request that already failed. Close it and refuse.
+                out.set(ApprovalAnswer.timedOut(WAIT_SECONDS));
+                javafx.application.Platform.runLater(() -> {
+                    var s = stage.get();
+                    if (s != null) s.close();
+                });
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         return out.get();
     }
 
-    private static void build(ApprovalAsk ask, int defaultOps, Consumer<ApprovalAnswer> answer) {
+    private static Stage build(ApprovalAsk ask, int defaultOps, Consumer<ApprovalAnswer> answer) {
         var stage = new Stage();
         stage.initModality(Modality.NONE);
         stage.setAlwaysOnTop(true);
@@ -120,12 +137,18 @@ public final class ApprovalWindow {
             });
         });
 
-        var root = vbox().spacing(9).padding(18).nodes(
+        // The elevation has to be legible before any word is read, so it is the surface itself: a solid
+        // band across the top and a wash over the whole panel. Coloured text alone was too quiet — it
+        // reads as decoration, and the point is that you should already know what kind of question this
+        // is while your eyes are still travelling to the words.
+        var band = label(badge(ask.tier())).attr(l -> l.setMaxWidth(Double.MAX_VALUE))
+                .style("-fx-background-color: " + accent + "; -fx-text-fill: white; -fx-font-size: 13px;"
+                        + " -fx-font-weight: bold; -fx-padding: 8 16 8 16;");
+
+        var content = vbox().spacing(9).padding(18).nodes(
                 label(ask.correlationCode() == null ? "" : ask.correlationCode())
                         .style("-fx-font-size: 34px; -fx-font-weight: bold; -fx-text-fill: " + accent
                                 + "; -fx-font-family: 'Consolas';"),
-                label(badge(ask.tier()))
-                        .style("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: " + accent + ";"),
                 label(ask.headline()).style("-fx-font-size: 16px; -fx-font-weight: bold;").wrapText(true),
 
                 label(unresolved ? "unidentified resource" : ask.resource().label())
@@ -147,11 +170,17 @@ public final class ApprovalWindow {
                 spans,
                 hbox().spacing(8).nodes(custom, deny),
                 label("1-8 choose a span   ·   type a span and press Enter   ·   Esc denies"
-                        + "   ·   Tab moves").style("-fx-font-size: 11px; -fx-text-fill: #777;"));
+                        + "   ·   Tab moves").style("-fx-font-size: 11px; -fx-text-fill: #777;"),
+                label("Unanswered for " + WAIT_SECONDS + "s this is refused and the window closes,"
+                        + " because the caller will have given up by then.")
+                        .style("-fx-font-size: 10px; -fx-text-fill: #999;").wrapText(true));
+
+        var root = vbox().nodes(band, content)
+                .style(Ui.INK + " -fx-background-color: " + tint(ask.tier()) + ";");
 
         deny.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.deny())));
 
-        var sc = scene(root.style(Ui.INK), 640, 520);
+        var sc = scene(root, 640, 560);
         sc.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE) {
                 finish.accept(ApprovalAnswer.deny());
@@ -167,6 +196,7 @@ public final class ApprovalWindow {
         stage.setScene(sc);
         Ui.toFront(stage);
         (danger ? once : choices.get(DEFAULT_SPAN.ordinal() + 1)).node.requestFocus();
+        return stage;
     }
 
     /**
@@ -183,6 +213,15 @@ public final class ApprovalWindow {
             case DESTRUCTIVE -> RED;
             case MUTATE -> AMBER;
             case READ -> GREEN;
+        };
+    }
+
+    /** Pale enough that the default dark text stays fully legible on it; the band carries the saturation. */
+    private static String tint(Tier tier) {
+        return switch (tier) {
+            case DESTRUCTIVE -> "#fdeaea";
+            case MUTATE -> "#fff4e5";
+            case READ -> "#eaf5ec";
         };
     }
 

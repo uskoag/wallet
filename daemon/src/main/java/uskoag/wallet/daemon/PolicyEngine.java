@@ -28,21 +28,34 @@ public final class PolicyEngine {
         this.settings = settings;
     }
 
-    public Verdict decide(String profile, String account, String session, Classification c) {
-        if (!keyring.unlocked()) return Verdict.DENY;
+    /**
+     * @param rule the rule that answered, when one did. Handed back so the caller can label the audit
+     *             from the name recorded at approval time: a request a rule already covers never asks
+     *             Google for a name, and an audit full of bare ids is unreadable exactly when it
+     *             matters.
+     */
+    public record Ruling(Verdict verdict, PolicyRule rule) {
+
+        static Ruling of(Verdict v) {
+            return new Ruling(v, null);
+        }
+    }
+
+    public Ruling decide(String profile, String account, String session, Classification c) {
+        if (!keyring.unlocked()) return Ruling.of(Verdict.DENY);
 
         var tier = c.tier();
         var res = c.resource();
 
-        if (tier == Tier.READ && (res.isBrowse() || !settings.readRequiresRule)) return Verdict.ALLOW;
-        if (tier == Tier.MUTATE && !settings.mutateRequiresRule) return Verdict.ALLOW;
+        if (tier == Tier.READ && (res.isBrowse() || !settings.readRequiresRule)) return Ruling.of(Verdict.ALLOW);
+        if (tier == Tier.MUTATE && !settings.mutateRequiresRule) return Ruling.of(Verdict.ALLOW);
 
         var rule = matching(profile, account, session, res, tier);
-        if (rule == null) return Verdict.PROMPT;
+        if (rule == null) return Ruling.of(Verdict.PROMPT);
 
         rule.opsUsed += tier == Tier.READ ? 0 : c.itemCount();
         rule.lastUsed = System.currentTimeMillis();
-        return Verdict.ALLOW;
+        return new Ruling(Verdict.ALLOW, rule);
     }
 
     /** The live rule that covers this, or null. Expired and exhausted rules are swept as we pass them. */
