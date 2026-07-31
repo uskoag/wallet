@@ -30,10 +30,9 @@ public final class ResetWindow {
     public static void show(WalletCore core, Runnable onUnlocked) {
         var stage = new Stage();
         stage.setAlwaysOnTop(true);
-        stage.setTitle("uskoag wallet - start over");
+        stage.setTitle(uskoag.wallet.wire.Brand.titled("start over"));
         AppIcon.applyTo(stage);
 
-        var kept = Recovery.pending();
         var typed = textField().promptText(CONFIRM_WORD);
         var status = label("");
         var go = button("Start over");
@@ -46,11 +45,13 @@ public final class ResetWindow {
                         + " is move it aside and begin a new one.").wrapText(true),
                 label("Lost: every stored refresh token, so each account consents once more."
                         + "  Lost: the standing permissions, rebuilt as you work."
-                        + "  Lost: the audit's detail columns, whose key lived in that keyring.").wrapText(true)
+                        + "  Lost: the audit's detail columns, whose key lived in that keyring."
+                        + "  Lost: every stored credentials.json — the wallet keeps no plain copy of them"
+                        + " any more, so each OAuth client has to be added again from your own copy or"
+                        + " re-downloaded from the Cloud console.").wrapText(true)
                         .style("-fx-text-fill: #b71c1c;"),
-                label("Kept: " + kept + " credentials.json file(s) from the backup, so nothing has to be fetched"
-                        + " from the Cloud console again.  Kept: the old keyring file, moved aside - if the"
-                        + " passphrase comes back to you next week, it is still there.").wrapText(true)
+                label("Kept: the old keyring file, moved aside - if the passphrase comes back to you next"
+                        + " week, it is still there and this is undoable.").wrapText(true)
                         .style("-fx-text-fill: #1b5e20;"),
                 label("Type " + CONFIRM_WORD + " to confirm:"),
                 typed,

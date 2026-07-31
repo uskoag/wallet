@@ -38,7 +38,6 @@ public final class SettingsPane {
         var readRule = checkBox("Reading a document needs a standing permission");
         var mutateRule = checkBox("Changing a document needs a standing permission");
         var destructivePhrase = checkBox("Irreversible operations re-ask for the passphrase");
-        var backup = checkBox("Keep a plain copy of each credentials.json outside the keyring");
         var openBrowser = checkBox("Open the default browser automatically during consent");
 
         var ops = textField();
@@ -49,7 +48,6 @@ public final class SettingsPane {
             ((CheckBox) readRule.node).setSelected(s.readRequiresRule);
             ((CheckBox) mutateRule.node).setSelected(s.mutateRequiresRule);
             ((CheckBox) destructivePhrase.node).setSelected(s.destructiveNeedsPassphrase);
-            ((CheckBox) backup.node).setSelected(s.backupCredentialsJson);
             ((CheckBox) openBrowser.node).setSelected(s.openBrowserAutomatically);
             ((TextField) ops.node).setText(String.valueOf(s.destructiveOps));
             ((TextField) autoLock.node).setText(String.valueOf(s.autoLockMinutes));
@@ -68,7 +66,6 @@ public final class SettingsPane {
                 s.readRequiresRule = ((CheckBox) readRule.node).isSelected();
                 s.mutateRequiresRule = ((CheckBox) mutateRule.node).isSelected();
                 s.destructiveNeedsPassphrase = ((CheckBox) destructivePhrase.node).isSelected();
-                s.backupCredentialsJson = ((CheckBox) backup.node).isSelected();
                 s.openBrowserAutomatically = ((CheckBox) openBrowser.node).isSelected();
                 s.destructiveOps = wantedOps;
                 s.autoLockMinutes = wantedLock;
@@ -111,11 +108,6 @@ public final class SettingsPane {
                         + " or one passphrase on the irreversible tier."),
 
                 label("Housekeeping").style("-fx-font-weight: bold;"),
-                backup,
-                note("On while the wallet is new. It means a forgotten passphrase costs the refresh tokens"
-                        + " only, instead of re-downloading a credentials.json per account from the Cloud"
-                        + " console. The cost is real: those files sit outside the encryption. Turn it off"
-                        + " and purge once this is settled."),
                 openBrowser,
                 note("With several org accounts on one machine the default browser is often signed in as"
                         + " the wrong one. The copyable-link window appears either way."),

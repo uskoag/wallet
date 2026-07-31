@@ -26,6 +26,16 @@ public final class FxGateway implements ApprovalGateway {
     }
 
     @Override
+    public void locked() {
+        Platform.runLater(() -> {
+            MainWindow.hide();
+            Tray.note(uskoag.wallet.wire.Brand.NAME, "Locked itself after "
+                    + core.settings.autoLockMinutes + " idle minute(s). Unlock from the tray, or just run"
+                    + " a tool and it will ask.");
+        });
+    }
+
+    @Override
     public void authUrl(String account, String url) {
         AuthUrlWindow.show(account, url);
     }

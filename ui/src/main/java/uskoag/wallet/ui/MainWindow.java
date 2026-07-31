@@ -24,7 +24,7 @@ public final class MainWindow {
             return;
         }
         stage = new Stage();
-        stage.setTitle("uskoag wallet");
+        stage.setTitle(uskoag.wallet.wire.Brand.NAME);
         AppIcon.applyTo(stage);
 
         var tabs = tabPane().attr(t -> {

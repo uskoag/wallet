@@ -47,7 +47,6 @@ public final class AccountVerbs {
             if (!d.isBlank() && !org.domains().contains(d.toLowerCase())) org.domains().add(d.toLowerCase());
         });
         core.keyring.save();
-        if (core.settings.backupCredentialsJson) CredentialsBackup.save(org.id, req.credentialsJson());
         return Json.of(Asks.Done.yes("org '" + org.id + "' stored"
                 + (org.domains().isEmpty() ? "" : " for " + String.join(", ", org.domains()))
                 + ". Now: uskoag-walletcli login <email> --groups " + Groups.DOCS.id()));
@@ -274,10 +273,7 @@ public final class AccountVerbs {
         org.id = req.to();
         if (wasLabel) org.label = req.to();
         core.keyring.save();
-        if (core.settings.backupCredentialsJson && org.credentialsJson != null) {
-            CredentialsBackup.save(org.id, org.credentialsJson);
-            CredentialsBackup.forget(req.from());
-        }
+        CredentialsBackup.forget(req.from());
         return Json.of(Asks.Done.yes("renamed '" + req.from() + "' to '" + org.id + "', "
                 + moved + " token(s) re-pointed"));
     }

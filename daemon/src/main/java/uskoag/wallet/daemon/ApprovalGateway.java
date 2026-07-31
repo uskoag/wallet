@@ -26,6 +26,13 @@ public interface ApprovalGateway {
     }
 
     /**
+     * The wallet locked itself after sitting idle. Say so where it will be seen, because the next tool to
+     * fail will fail with "wallet is locked" and the reason should already be on screen.
+     */
+    default void locked() {
+    }
+
+    /**
      * Bring the wallet's own window forward. Called when a second launch finds this one already
      * running: the expectation when someone starts an app that is already up is that its window
      * appears, not that a second copy argues with the first.

@@ -97,7 +97,7 @@ public final class ApprovalWindow {
         var stage = new Stage();
         stage.initModality(Modality.NONE);
         stage.setAlwaysOnTop(true);
-        stage.setTitle("uskoag wallet — approval");
+        stage.setTitle(uskoag.wallet.wire.Brand.titled("approval"));
 
         var danger = ask.tier() == Tier.DESTRUCTIVE;
         var accent = accent(ask.tier());

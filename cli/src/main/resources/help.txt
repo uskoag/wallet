@@ -1,4 +1,4 @@
-uskoag-walletcli - the command line face of the uskoag wallet
+uskoag-walletcli - the command line face of the USK OAG GServices Wallet
 
 The wallet holds every refresh token and client secret on this machine and releases neither. Client
 tools get an opaque handle and a loopback URL, so no tool ever holds a Google credential. Every call
@@ -40,20 +40,22 @@ they then make is classified and policed where the request actually is.
   policy allow --api sheets --resource <id> --tier write [--minutes 60] [--ops 50] [--match exact]
                                     ask for a standing rule; raises the same dialog a first touch
                                     would have raised, because a process must not grant itself one
-  policy extend <ruleId> --by 1w    push a rule's expiry out and refresh its operation count. Added
-                                    to the existing expiry, so extending a rule with a day left by a
-                                    week gives eight days. Raises the dialog for the same reason
-                                    allow does. Spans: 45m 12h 10d 3w 6mo 2y forever
+  policy extend <ruleId> --by 1w    push a rule's expiry out and refresh its operation count. Capped
+                                    at the tier ceiling measured from now, so topping up repeatedly is
+                                    not a way around it. Raises the dialog for the same reason allow
+                                    does. Spans: 45m 12h 10d 3w
   policy revoke <ruleId>            drop one rule
   policy clear                      drop them all
 
   audit [--limit 100]               what was actually attempted, denials included
 
-  backups                           credentials.json files kept outside the keyring
-  purgebackups                      delete them (do this once the wallet is settled)
+  backups                           plain credentials.json files left by earlier versions
+  purgebackups                      delete them. The wallet keeps none now and sweeps these on
+                                    every unlock; this verb is for doing it by hand
   reset                             passphrase gone: move the keyring aside and start a new one.
-                                    Lost - refresh tokens, standing permissions, audit detail.
-                                    Kept - every credentials.json, and the old keyring file itself
+                                    Lost - refresh tokens, standing permissions, audit detail, and
+                                    every stored credentials.json. Kept - the old keyring file,
+                                    moved aside, so this is undoable if the passphrase comes back
 
 The three levels, and why they are three
   org      owns the OAuth client (client_id + client_secret). One credentials.json.
@@ -76,11 +78,20 @@ Notes
   becomes a standing rule. Only the irreversible tier keeps asking, and it is bounded by a count
   before a clock, because a time window bounds a human's session and does not bound a machine's.
 
-  Settings live in ~/uskoag/wallet/wallet.toml: readRequiresRule, mutateRequiresRule,
-  backupCredentialsJson, destructiveOps, destructiveMinutes, autoLockMinutes.
+  Settings live INSIDE the keyring, edited from the Settings tab of the app, and are readable only
+  while it is unlocked. A settings file beside the keyring would be one that anything running as you
+  could edit, and one line of it turns the policy layer off.
 
-  backupCredentialsJson is on while the wallet is new, and it is a real trade. It keeps a plain copy
-  of each credentials.json beside the keyring so a forgotten passphrase costs only the refresh tokens
-  and not a re-download from the Cloud console for every account. The cost is that the OAuth client
-  secret then sits on disk in the clear, which gives back half of what encrypting it bought. Set it to
-  false and run purgebackups once things are settled.
+  How long a permission may stand is fixed and not settable: read 1 week, change 1 day, irreversible
+  1 hour. Nothing is ever granted without an expiry. Extending costs one click, which is what lets
+  the ceilings be this short.
+
+  The wallet keeps NO plain copy of any credentials.json. It used to, as a forgotten-passphrase safety
+  net, and that put every OAuth client secret on disk in the clear - giving back half of what
+  encrypting them bought. Copies left by earlier versions are swept on every unlock. Keep your own
+  copies: after a reset, each client is added again from those.
+
+  The wallet locks itself after 60 idle minutes by default, and idle means idle for the wallet, so a
+  long batch does not trip it. This is the second lock and it answers a different question from an
+  approval: the approval says what may be touched, this says for how long anything at all may be. Set
+  autoLockMinutes to 0 in the Settings tab for genuinely unattended work.

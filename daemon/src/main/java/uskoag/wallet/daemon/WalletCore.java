@@ -31,8 +31,17 @@ public final class WalletCore {
     public final Audit audit = new Audit();
     public final ResourceNames names = new ResourceNames();
 
+    private static final java.util.concurrent.ScheduledExecutorService TIMER =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                var t = new Thread(r, "wallet-autolock");
+                t.setDaemon(true);
+                return t;
+            });
+
     private ApprovalGateway gateway = new HeadlessGateway();
     private volatile int proxyPort;
+    private volatile long lastActivity = System.currentTimeMillis();
+    private java.util.concurrent.ScheduledFuture<?> autoLock;
 
     public void gateway(ApprovalGateway g) {
         this.gateway = g;
@@ -55,6 +64,16 @@ public final class WalletCore {
         else keyring.create(passphrase);
         settings.copyFrom(keyring.data().settings());
         audit.open(keyring.auditKey());
+
+        // The wallet used to keep a plain copy of each credentials.json beside the keyring as a
+        // forgotten-passphrase safety net. It no longer does, and any left from before are removed here
+        // rather than left to rot: the office keeps its own copies, so the net was buying nothing and
+        // costing a set of OAuth client secrets sitting outside the encryption.
+        var swept = CredentialsBackup.purge();
+        if (swept > 0) Log.info("removed " + swept + " plain credentials.json backup(s) from earlier"
+                + " versions; the wallet no longer keeps any");
+
+        armAutoLock();
         Log.info("unlocked: " + keyring.data().orgs().size() + " org(s), "
                 + keyring.accountNames().size() + " account(s), "
                 + keyring.data().credentials().size() + " token(s), "
@@ -63,12 +82,59 @@ public final class WalletCore {
 
     /** Total, not gradual: every live handle dies here, so anything in flight stops mid-call. */
     public void lock() {
+        if (autoLock != null) {
+            autoLock.cancel(false);
+            autoLock = null;
+        }
         grants.clear();
         tokens.clear();
         names.clear();
         audit.close();
         keyring.lock();
         Log.info("locked");
+    }
+
+    /**
+     * Marks the wallet as in use, deferring the auto-lock. Called on every grant and every proxied call.
+     *
+     * <p>Idle means idle for the wallet, not for the screen: a batch running unattended for two hours is
+     * not idle, and locking underneath it would fail the work for no gain.
+     */
+    public void touch() {
+        lastActivity = System.currentTimeMillis();
+    }
+
+    /**
+     * The second lock, and the reason it is worth having: an approval says <em>what</em> may be touched,
+     * and this says <em>for how long anything at all</em> may be. Even a standing permission is useless
+     * against a wallet that has locked itself, so an unattended machine converges on safe rather than
+     * staying wherever the last approval left it. Someone who genuinely wants long unattended access
+     * raises the number, which is a decision they made rather than a default they inherited.
+     */
+    private void armAutoLock() {
+        if (autoLock != null) autoLock.cancel(false);
+        var minutes = settings.autoLockMinutes;
+        if (minutes <= 0) {
+            Log.info("auto-lock disabled; this wallet stays unlocked until told otherwise");
+            return;
+        }
+        touch();
+        var idleMs = minutes * 60_000L;
+        // Checked every fraction of the window rather than scheduled once, so editing the setting takes
+        // effect within a minute instead of at the next unlock.
+        var tick = Math.max(15_000L, idleMs / 6);
+        autoLock = TIMER.scheduleWithFixedDelay(() -> {
+            try {
+                if (!keyring.unlocked()) return;
+                if (System.currentTimeMillis() - lastActivity < settings.autoLockMinutes * 60_000L) return;
+                Log.info("auto-locking after " + settings.autoLockMinutes + " idle minute(s)");
+                lock();
+                gateway.locked();
+            } catch (Exception e) {
+                Log.warn("auto-lock check failed: " + e);
+            }
+        }, tick, tick, java.util.concurrent.TimeUnit.MILLISECONDS);
+        Log.info("auto-lock armed at " + minutes + " idle minute(s)");
     }
 
     public WalletStatus status() {
@@ -118,6 +184,7 @@ public final class WalletCore {
             gateway.unlockNeeded(req.appName() + " is asking for " + req.account());
             return AccessGrant.failed("wallet is locked, unlock it and retry");
         }
+        touch();
         var account = resolve(req.account());
         if (account.isEmpty()) return AccessGrant.failed(noAccount(req.account()));
 

@@ -34,7 +34,7 @@ public final class Tray {
             System.exit(0);
         }));
 
-        icon = new TrayIcon(trayImage(), "uskoag wallet", menu);
+        icon = new TrayIcon(trayImage(), uskoag.wallet.wire.Brand.NAME, menu);
         icon.setImageAutoSize(true);
         icon.addActionListener(e -> Platform.runLater(onOpen::run));
         try {

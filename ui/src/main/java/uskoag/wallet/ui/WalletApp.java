@@ -46,10 +46,10 @@ public final class WalletApp extends Application {
         if (args.contains("--show")) {
             UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), null);
         } else if (args.contains("--unlock")) {
-            UnlockWindow.show(wallet.core, () -> Tray.note("uskoag wallet",
+            UnlockWindow.show(wallet.core, () -> Tray.note(uskoag.wallet.wire.Brand.NAME,
                     "Unlocked. Tools on this machine can now reach Google through it."), null);
         } else {
-            Tray.note("uskoag wallet", "Running, and locked. The passphrase is asked for when a tool"
+            Tray.note(uskoag.wallet.wire.Brand.NAME, "Running, and locked. The passphrase is asked for when a tool"
                     + " first needs it.");
         }
     }
@@ -71,7 +71,7 @@ public final class WalletApp extends Application {
     private void lock() {
         wallet.core.lock();
         MainWindow.hide();
-        Tray.note("uskoag wallet", "Locked. Everything in flight has stopped.");
+        Tray.note(uskoag.wallet.wire.Brand.NAME, "Locked. Everything in flight has stopped.");
         UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), "Locked from the tray.");
     }
 

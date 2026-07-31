@@ -27,12 +27,6 @@ public final class WalletSettings {
     public boolean mutateRequiresRule = true;
 
     /**
-     * A development-phase convenience with a real cost, on by default while the wallet is new: see
-     * {@link uskoag.wallet.wire.WalletPaths#credentialsBackup()}. Turn it off and purge once settled.
-     */
-    public boolean backupCredentialsJson = true;
-
-    /**
      * Google's helper opens whatever Windows calls the default browser, which with several org accounts
      * on one machine is often signed in as the wrong one. The copyable URL window appears either way;
      * set this false if the automatic attempt is never the right browser and is just noise.
@@ -49,7 +43,19 @@ public final class WalletSettings {
      */
     public boolean destructiveNeedsPassphrase = true;
 
-    public int destructiveOps = 25, destructiveMinutes = 15, autoLockMinutes = 0;
+    public int destructiveOps = 25, destructiveMinutes = 15;
+
+    /**
+     * Idle minutes before the wallet locks itself. 0 disables it.
+     *
+     * <p>Double protection, and the two halves answer different questions: an approval says what may be
+     * touched, this says for how long anything at all may be. A standing permission is worthless against
+     * a locked wallet, so an unattended machine converges on safe instead of staying wherever the last
+     * approval left it. Idle means idle for the wallet - a batch running unattended for two hours is not
+     * idle. Someone who wants long unattended access raises it, which is a decision rather than an
+     * inherited default.
+     */
+    public int autoLockMinutes = 60;
 
     // How long a permission of each tier may stand is NOT here. It is on uskoag.wallet.wire.Tier, fixed
     // and not overridable, because a ceiling anyone can raise is not a ceiling — and the reason it can
@@ -60,7 +66,6 @@ public final class WalletSettings {
         if (o == null) return;
         readRequiresRule = o.readRequiresRule;
         mutateRequiresRule = o.mutateRequiresRule;
-        backupCredentialsJson = o.backupCredentialsJson;
         openBrowserAutomatically = o.openBrowserAutomatically;
         destructiveNeedsPassphrase = o.destructiveNeedsPassphrase;
         destructiveOps = o.destructiveOps;
@@ -86,7 +91,6 @@ public final class WalletSettings {
             var kv = flatToml(Files.readString(f));
             s.readRequiresRule = bool(kv, "readRequiresRule", s.readRequiresRule);
             s.mutateRequiresRule = bool(kv, "mutateRequiresRule", s.mutateRequiresRule);
-            s.backupCredentialsJson = bool(kv, "backupCredentialsJson", s.backupCredentialsJson);
             s.openBrowserAutomatically = bool(kv, "openBrowserAutomatically", s.openBrowserAutomatically);
             s.destructiveNeedsPassphrase = bool(kv, "destructiveNeedsPassphrase", s.destructiveNeedsPassphrase);
             s.destructiveOps = num(kv, "destructiveOps", s.destructiveOps);

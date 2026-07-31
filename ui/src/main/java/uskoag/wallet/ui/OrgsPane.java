@@ -2,7 +2,7 @@ package uskoag.wallet.ui;
 
 import javafx.collections.FXCollections;
 import javafx.scene.Node;
-import javafx.scene.control.ListView;
+import javafx.scene.control.TableView;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.stage.FileChooser;
@@ -18,7 +18,6 @@ import java.util.List;
 import static luvjfx.Fx.button;
 import static luvjfx.Fx.hbox;
 import static luvjfx.Fx.label;
-import static luvjfx.Fx.listView;
 import static luvjfx.Fx.textArea;
 import static luvjfx.Fx.textField;
 import static luvjfx.Fx.vbox;
@@ -39,7 +38,21 @@ public final class OrgsPane {
 
     public static Node build(WalletCore core) {
         var verbs = new AccountVerbs(core);
-        var list = listView(String.class);
+        var table = new TableView<OrgInfo>();
+        table.getColumns().addAll(
+                Cols.of("Id", 110, OrgInfo::id),
+                Cols.of("Organisation", 210, o -> o.label() == null ? "" : o.label()),
+                Cols.of("Accounts", 75, o -> String.valueOf(o.accounts())),
+                Cols.of("Created under", 200, o -> o.owner() == null ? "(unknown)" : o.owner()),
+                Cols.of("Domains answered for", 250, o -> o.domains().isEmpty()
+                        ? "(none — accounts must name --org)" : String.join("   ", o.domains())),
+                // A pattern that will not compile matches nothing, so it fails silently and looks like a
+                // client that simply never claims an account. Saying so beside it is the only way that is
+                // ever noticed.
+                Cols.of("Pattern problems", 200, OrgsPane::problems),
+                Cols.of("Client id", 290, o -> o.clientId() == null ? "" : o.clientId()),
+                Cols.of("Added", 145, o -> Cols.stamp(o.addedAt())));
+        Cols.ready(table, "No OAuth clients yet. Give one a short id below and upload its credentials.json.");
         var id = textField().promptText("short id, e.g. uskf");
         var labelField = textField().promptText("human name, e.g. USK Foundation");
         var domains = textArea().promptText(
@@ -52,15 +65,11 @@ public final class OrgsPane {
         domains.attr(t -> t.setPrefRowCount(6));
         var status = label("");
 
-        Runnable refresh = () -> ((ListView<String>) list.node).setItems(FXCollections.observableArrayList(
-                core.orgs().stream().map(OrgsPane::line).toList()));
+        Runnable refresh = () -> table.setItems(FXCollections.observableArrayList(core.orgs()));
         refresh.run();
 
-        ((ListView<String>) list.node).getSelectionModel().selectedItemProperty()
-                .addListener((o, was, is) -> {
-                    if (is == null) return;
-                    var picked = core.orgs().stream()
-                            .filter(x -> is.startsWith(x.id() + "  ")).findFirst().orElse(null);
+        table.getSelectionModel().selectedItemProperty()
+                .addListener((o, was, picked) -> {
                     if (picked == null) return;
                     ((TextField) id.node).setText(picked.id());
                     ((TextField) labelField.node).setText(picked.label() == null ? "" : picked.label());
@@ -81,7 +90,7 @@ public final class OrgsPane {
             var chooser = new FileChooser();
             chooser.setTitle("credentials.json for " + orgId);
             chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("credentials.json", "*.json"));
-            var file = chooser.showOpenDialog(list.node.getScene().getWindow());
+            var file = chooser.showOpenDialog(table.getScene().getWindow());
             if (file == null) return;
             try {
                 verbs.addOrg(new Asks.AddOrg(orgId, ((TextField) labelField.node).getText().trim(),
@@ -121,21 +130,21 @@ public final class OrgsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
-        Cols.fill((javafx.scene.layout.Region) list.node);
 
         return vbox().spacing(8).padding(12).nodes(
-                label("OAuth clients").style("-fx-font-weight: bold;"),
-                label("One credentials.json per Cloud project. Every account and every tool in the"
-                        + " organisation mints its tokens from it. One per org is what an unverified app"
-                        + " leaves available, given the hundred-user cap and a Workspace admin's power to"
-                        + " refuse a foreign client id.")
-                        .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
-                list,
-                hbox().spacing(6).nodes(label("id"), id, label("name"), labelField),
-                label("Domains this client answers for").style("-fx-font-size: 11px; -fx-font-weight: bold;"),
-                domains,
-                hbox().spacing(6).nodes(upload, save, remove, reload),
-                status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
+                        label("OAuth clients").style("-fx-font-weight: bold;"),
+                        label("One credentials.json per Cloud project. Every account and every tool in the"
+                                + " organisation mints its tokens from it. One per org is what an unverified"
+                                + " app leaves available, given the hundred-user cap and a Workspace admin's"
+                                + " power to refuse a foreign client id.")
+                                .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"))
+                .add(table)
+                .nodes(hbox().spacing(6).nodes(label("id"), id, label("name"), labelField),
+                        label("Domains this client answers for")
+                                .style("-fx-font-size: 11px; -fx-font-weight: bold;"),
+                        domains,
+                        hbox().spacing(6).nodes(upload, save, remove, reload),
+                        status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
     }
 
     private static List<String> patterns(luvjfx.FxTextArea area) {
@@ -145,17 +154,10 @@ public final class OrgsPane {
                 .map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
-    private static String line(OrgInfo o) {
-        var bad = o.domains().stream().map(DomainRule::problem).filter(java.util.Objects::nonNull).count();
-        return o.id() + "  " + pad(o.label() == null ? "" : o.label(), 26)
-                + pad(o.owner() == null ? "owner unknown" : "owner " + o.owner(), 34)
-                + pad(o.accounts() + " acct", 8)
-                + (o.domains().isEmpty() ? "(no domains - accounts must name --org)"
-                : String.join(", ", o.domains()))
-                + (bad > 0 ? "   [" + bad + " bad pattern]" : "");
-    }
 
-    private static String pad(String s, int width) {
-        return s.length() >= width ? s.substring(0, width - 1) + " " : s + " ".repeat(width - s.length());
+    private static String problems(OrgInfo o) {
+        var bad = o.domains().stream().map(DomainRule::problem)
+                .filter(java.util.Objects::nonNull).toList();
+        return bad.isEmpty() ? "" : String.join("; ", bad);
     }
 }

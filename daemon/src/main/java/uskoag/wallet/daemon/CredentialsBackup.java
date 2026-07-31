@@ -18,7 +18,9 @@ import java.util.List;
  * is worse than one you are not.
  *
  * <p>The cost is real and stated at {@link WalletPaths#credentialsBackup()}: the client secret sits on
- * disk in the clear. Turn it off with {@code backupCredentialsJson = false} once the wallet is settled,
+ * disk in the clear. NOTHING WRITES HERE ANY MORE: the wallet keeps no plain copies, and { #purge()}
+ * is called on every unlock to remove any left by earlier versions. What remains here is the reader and
+ * the sweeper,
  * and run {@code purgebackups} to remove what is already there.
  */
 public final class CredentialsBackup {

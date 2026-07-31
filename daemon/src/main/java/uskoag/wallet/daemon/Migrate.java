@@ -28,10 +28,30 @@ public final class Migrate {
         }
         if ("4".equals(data.version)) {
             four2five(data);
+            data.version = "5";
+            changed = true;
+        }
+        if ("5".equals(data.version)) {
+            five2six(data);
             data.version = KeyringData.VERSION;
             changed = true;
         }
         return changed;
+    }
+
+    /**
+     * Adopts the auto-lock default.
+     *
+     * <p>v5 carried the old default of 0, meaning never — so the setting existed and did nothing, which is
+     * how it had been since it was written. Turning it on for keyrings that still hold that 0 is the
+     * difference between the second lock working and merely being available. A stored 0 here cannot be a
+     * considered choice: nothing has ever offered a way to make one.
+     */
+    private static void five2six(KeyringData data) {
+        if (data.settings().autoLockMinutes != 0) return;
+        data.settings().autoLockMinutes = 60;
+        Log.info("keyring migrated 5 -> 6: auto-lock adopted at 60 idle minutes. Set it to 0 in the"
+                + " Settings tab for genuinely unattended work.");
     }
 
     /**

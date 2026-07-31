@@ -26,7 +26,7 @@ public final class KeyringData {
      * Bumped whenever the stored shape changes. {@link Keyring#unlock} refuses a mismatch rather than
      * letting Gson parse an older shape into this one and leave the moved fields unset.
      */
-    public static final String VERSION = "5";
+    public static final String VERSION = "6";
 
     String version = VERSION;
     long createdAt = System.currentTimeMillis();

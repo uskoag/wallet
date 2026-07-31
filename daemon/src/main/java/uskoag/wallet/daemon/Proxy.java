@@ -65,6 +65,7 @@ public final class Proxy {
             var query = x.getRequestURI().getRawQuery();
 
             var body = maybeRead(x);
+            core.touch();
             var facts = new RequestFacts(api.alias, x.getRequestMethod(), "/" + path, query, body);
             var classified = Rules.classify(facts);
 

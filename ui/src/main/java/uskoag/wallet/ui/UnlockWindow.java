@@ -3,7 +3,6 @@ package uskoag.wallet.ui;
 import javafx.application.Platform;
 import javafx.scene.control.PasswordField;
 import javafx.stage.Stage;
-import uskoag.wallet.daemon.CredentialsBackup;
 import uskoag.wallet.daemon.Keyring;
 import uskoag.wallet.daemon.WalletCore;
 
@@ -46,7 +45,7 @@ public final class UnlockWindow {
         var stage = new Stage();
         open = stage;
         stage.setAlwaysOnTop(true);
-        stage.setTitle(creating ? "uskoag wallet - create keyring" : "uskoag wallet - unlock");
+        stage.setTitle(uskoag.wallet.wire.Brand.titled(creating ? "create keyring" : "unlock"));
         AppIcon.applyTo(stage);
 
         var first = passwordField();
@@ -57,7 +56,7 @@ public final class UnlockWindow {
         var quit = button("Quit").cancelButton(true);
 
         var body = vbox().spacing(10).padding(18);
-        var heading = label(creating ? "Set a passphrase for this machine" : "uskoag wallet")
+        var heading = label(creating ? "Set a passphrase for this machine" : uskoag.wallet.wire.Brand.NAME)
                 .style("-fx-font-size: 18px; -fx-font-weight: bold;");
         var blurb = label(creating
                 ? "This is the only thing standing between anything on this machine and every Google account"
@@ -78,13 +77,6 @@ public final class UnlockWindow {
                     return;
                 }
                 core.unlock(typed);
-                if (creating) {
-                    var restored = CredentialsBackup.restoreInto(core);
-                    if (restored > 0) {
-                        Tray.note("uskoag wallet", restored + " credentials.json restored from backup."
-                                + " Each account still needs 'Log in' once.");
-                    }
-                }
                 stage.close();
                 open = null;
                 if (onUnlocked != null) onUnlocked.run();
