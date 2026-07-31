@@ -1,32 +1,52 @@
 package uskoag.wallet.ui;
 
+import javafx.scene.control.TextField;
+import javafx.scene.input.KeyCode;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import uskoag.wallet.wire.ApprovalAnswer;
 import uskoag.wallet.wire.ApprovalAsk;
 import uskoag.wallet.wire.Match;
+import uskoag.wallet.wire.Span;
 import uskoag.wallet.wire.Tier;
 
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static luvjfx.Fx.button;
+import static luvjfx.Fx.flowPane;
 import static luvjfx.Fx.hbox;
 import static luvjfx.Fx.label;
 import static luvjfx.Fx.scene;
+import static luvjfx.Fx.separator;
+import static luvjfx.Fx.textField;
 import static luvjfx.Fx.vbox;
 
 /**
  * The dialog that has to be readable in two seconds.
  *
- * <p>It names the actual operation rather than asking for "write access", because a prompt you cannot
- * evaluate is a prompt you will click through. The correlation code is in large type for the same
- * reason: with several agent runs in flight, "which one is asking" is the only question that matters,
- * and the client printed the same four characters to its own stderr.
+ * <p>It names the actual operation rather than asking for "write access", and it names the document
+ * rather than its id, because a prompt you cannot evaluate is a prompt you will click through — and a
+ * habit of clicking through is worse than no dialog, since it launders consent it never obtained. The
+ * correlation code is in large type for the same reason: with several agent runs in flight, "which one
+ * is asking" is the only question that matters, and the client printed the same four characters to its
+ * own stderr.
+ *
+ * <p>Colour tracks elevation, since that is the thing you judge before reading any words: green to
+ * read, amber to change, red for anything that cannot be undone.
+ *
+ * <p>Each duration is its own button, so a decision is one keystroke rather than pick-then-confirm.
+ * Enter never means forever — the focused button is a bounded span, and on the irreversible tier it is
+ * "Once" — because the default has to be the answer you would not regret giving without reading.
  */
 public final class ApprovalWindow {
 
-    private static final String DANGER = "#b71c1c", CALM = "#1b5e20";
+    private static final String RED = "#b71c1c", AMBER = "#e65100", GREEN = "#1b5e20", WARN = "#8d6e00";
+
+    /** Enter lands here: bounded, useful, and never the widest thing on offer. */
+    private static final Span DEFAULT_SPAN = Span.MONTH;
 
     private ApprovalWindow() {
     }
@@ -35,7 +55,7 @@ public final class ApprovalWindow {
         var out = new AtomicReference<>(ApprovalAnswer.deny());
         var done = new CountDownLatch(1);
 
-        javafx.application.Platform.runLater(() -> build(ask, defaultOps, defaultMinutes, answer -> {
+        javafx.application.Platform.runLater(() -> build(ask, defaultOps, answer -> {
             out.set(answer);
             done.countDown();
         }));
@@ -47,53 +67,139 @@ public final class ApprovalWindow {
         return out.get();
     }
 
-    private static void build(ApprovalAsk ask, int defaultOps, int defaultMinutes,
-                              java.util.function.Consumer<ApprovalAnswer> answer) {
+    private static void build(ApprovalAsk ask, int defaultOps, Consumer<ApprovalAnswer> answer) {
         var stage = new Stage();
         stage.initModality(Modality.NONE);
         stage.setAlwaysOnTop(true);
         stage.setTitle("uskoag wallet — approval");
 
         var danger = ask.tier() == Tier.DESTRUCTIVE;
-        var accent = danger ? DANGER : CALM;
+        var accent = accent(ask.tier());
+        var unresolved = ask.resource().label() == null || ask.resource().label().isBlank();
 
         var deny = button("Deny  (Esc)").cancelButton(true);
-        var once = button("Just once").defaultButton(danger);
-        var remember = button(danger
-                ? "Allow " + defaultOps + " ops for " + defaultMinutes + " min"
-                : "Allow always").defaultButton(!danger);
+        var custom = textField();
+        var choices = new ArrayList<luvjfx.FxButton>();
 
-        var root = vbox().spacing(10).padding(18).nodes(
-                label(ask.correlationCode()).style("-fx-font-size: 34px; -fx-font-weight: bold; -fx-text-fill: "
-                        + accent + "; -fx-font-family: 'Consolas';"),
-                label(danger ? "IRREVERSIBLE" : "PERMISSION")
-                        .style("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: " + accent + ";"),
-                label(ask.headline()).style("-fx-font-size: 16px; -fx-font-weight: bold;"),
-                label(ask.resource().display()).wrapText(true),
-                label("account: " + ask.account() + "    profile: " + ask.profile()
-                        + "    pid: " + ask.pid()).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
-                label(ask.peerCommand()).wrapText(true).style("-fx-font-size: 10px; -fx-text-fill: #999;"),
-                hbox().spacing(8).nodes(deny, once, remember),
-                label("Esc denies   ·   Tab moves   ·   Enter takes the highlighted button")
-                        .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
-
-        java.util.function.Consumer<ApprovalAnswer> finish = a -> {
+        Consumer<ApprovalAnswer> finish = a -> {
             answer.accept(a);
             stage.close();
         };
-        deny.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.deny())));
-        once.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.once())));
-        remember.attr(b -> b.setOnAction(e -> finish.accept(danger
-                ? ApprovalAnswer.forMinutes(defaultMinutes, defaultOps, Match.EXACT)
-                : ApprovalAnswer.forever(Match.EXACT))));
 
-        var sc = scene(root.style(Ui.INK), 560, 340);
+        // "Once" is not a span: it writes no rule at all, so the next call asks again.
+        var once = button("1  Once");
+        once.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.once())));
+        choices.add(once);
+
+        for (var span : Span.values()) {
+            var key = choices.size() + 1;
+            var b = button(key + "  " + span.label);
+            b.attr(x -> x.setOnAction(e -> finish.accept(grant(span, danger, defaultOps))));
+            if (span == DEFAULT_SPAN && !danger) b.defaultButton(true);
+            choices.add(b);
+        }
+        if (danger) once.defaultButton(true);
+
+        var spans = flowPane().attr(p -> {
+            p.setHgap(6);
+            p.setVgap(6);
+        });
+        choices.forEach(spans::add);
+
+        custom.attr(f -> {
+            f.setPromptText("or type a span:  45m  12h  10d  3w  6mo  2y");
+            f.setPrefColumnCount(18);
+            f.setOnAction(e -> {
+                var minutes = Span.parse(f.getText());
+                if (minutes == null) {
+                    f.setStyle("-fx-border-color: " + RED + ";");
+                    f.setPromptText("not a span — try 12h, 10d, 3w, 6mo");
+                    return;
+                }
+                finish.accept(ApprovalAnswer.forMinutes(minutes, danger ? defaultOps : -1, Match.EXACT));
+            });
+        });
+
+        var root = vbox().spacing(9).padding(18).nodes(
+                label(ask.correlationCode() == null ? "" : ask.correlationCode())
+                        .style("-fx-font-size: 34px; -fx-font-weight: bold; -fx-text-fill: " + accent
+                                + "; -fx-font-family: 'Consolas';"),
+                label(badge(ask.tier()))
+                        .style("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: " + accent + ";"),
+                label(ask.headline()).style("-fx-font-size: 16px; -fx-font-weight: bold;").wrapText(true),
+
+                label(unresolved ? "unidentified resource" : ask.resource().label())
+                        .style("-fx-font-size: 15px; -fx-font-weight: bold;"
+                                + (unresolved ? " -fx-text-fill: " + WARN + ";" : "")).wrapText(true),
+                label(text(ask.resourceKind()) + "  ·  " + text(ask.resource().id()))
+                        .style("-fx-font-size: 11px; -fx-font-family: 'Consolas'; -fx-text-fill: "
+                                + (unresolved ? WARN : "#888") + ";").wrapText(true),
+
+                label("account: " + text(ask.account()) + "    profile: " + text(ask.profile())
+                        + "    pid: " + ask.pid()).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                label(text(ask.peerCommand())).wrapText(true).style("-fx-font-size: 10px; -fx-text-fill: #999;"),
+                separator(),
+
+                label(danger
+                        ? "Approve for — and every grant below is also capped at " + defaultOps
+                          + " operations, whichever limit comes first:"
+                        : "Approve for:").style("-fx-font-size: 12px; -fx-font-weight: bold;").wrapText(true),
+                spans,
+                hbox().spacing(8).nodes(custom, deny),
+                label("1-8 choose a span   ·   type a span and press Enter   ·   Esc denies"
+                        + "   ·   Tab moves").style("-fx-font-size: 11px; -fx-text-fill: #777;"));
+
+        deny.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.deny())));
+
+        var sc = scene(root.style(Ui.INK), 640, 520);
         sc.setOnKeyPressed(e -> {
-            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) finish.accept(ApprovalAnswer.deny());
+            if (e.getCode() == KeyCode.ESCAPE) {
+                finish.accept(ApprovalAnswer.deny());
+                return;
+            }
+            // Digits are shortcuts only while the span box does not have the caret, or "10d" would fire
+            // the first button before the second character arrived.
+            if (((TextField) custom.node).isFocused()) return;
+            var pick = digit(e.getCode());
+            if (pick >= 1 && pick <= choices.size()) choices.get(pick - 1).node.fire();
         });
         stage.setOnCloseRequest(e -> answer.accept(ApprovalAnswer.deny()));
         stage.setScene(sc);
         Ui.toFront(stage);
-        (danger ? once : remember).node.requestFocus();
+        (danger ? once : choices.get(DEFAULT_SPAN.ordinal() + 1)).node.requestFocus();
+    }
+
+    /**
+     * Counts before clocks stays true on the irreversible tier: a span bounds a person's sitting and
+     * does nothing to bound a loop, so every irreversible grant carries an operation cap as well.
+     * Read and change keep an unlimited count, which is what they had before spans existed.
+     */
+    private static ApprovalAnswer grant(Span span, boolean danger, int ops) {
+        return ApprovalAnswer.forMinutes(span.minutes, danger ? ops : -1, Match.EXACT);
+    }
+
+    private static String accent(Tier tier) {
+        return switch (tier) {
+            case DESTRUCTIVE -> RED;
+            case MUTATE -> AMBER;
+            case READ -> GREEN;
+        };
+    }
+
+    private static String badge(Tier tier) {
+        return switch (tier) {
+            case DESTRUCTIVE -> "IRREVERSIBLE";
+            case MUTATE -> "CHANGE";
+            case READ -> "READ";
+        };
+    }
+
+    private static int digit(KeyCode code) {
+        var name = code.getName();
+        return name.length() == 1 && Character.isDigit(name.charAt(0)) ? name.charAt(0) - '0' : -1;
+    }
+
+    private static String text(String s) {
+        return s == null ? "" : s;
     }
 }

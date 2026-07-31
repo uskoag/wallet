@@ -1,6 +1,7 @@
 package uskoag.wallet.daemon;
 
 import uskoag.wallet.wire.ApprovalAsk;
+import uskoag.wallet.wire.ResourceRef;
 import uskoag.wallet.wire.Tier;
 
 import java.util.UUID;
@@ -11,11 +12,22 @@ import java.util.concurrent.Semaphore;
  * The single choke point: classify what was asked, ask the standing rules, ask a person if the rules
  * cannot answer, and record all three outcomes whichever way it goes.
  *
+ * <p>Before a person is asked anything, the resource is named. An id is not a question anybody can
+ * answer, so a dialog carrying only an id gets approved every time and the approval means nothing.
+ *
  * <p>Concurrent identical prompts are collapsed. Without that, a batch of forty deletions against one
  * folder would open forty dialogs and the fortieth would be answered by someone who stopped reading at
  * the second.
  */
 public final class Gate {
+
+    /**
+     * Resolves a resource's human name. The caller supplies it because only the caller holds a token
+     * that could ask Google, and the wallet will not invent a name it has not verified.
+     */
+    public interface Namer {
+        ResourceNames.Named name(ResourceRef res);
+    }
 
     private final WalletCore core;
     private final ConcurrentHashMap<String, Semaphore> inFlight = new ConcurrentHashMap<>();
@@ -24,14 +36,39 @@ public final class Gate {
         this.core = core;
     }
 
-    public boolean allows(Grant grant, Classification c) {
+    public Decision decide(Grant grant, Classification c, Namer namer) {
         var verdict = core.policy.decide(grant.profile(), grant.account(), grant.session(), c);
-        if (verdict == Verdict.PROMPT) verdict = prompt(grant, c);
-        record(grant, c, verdict);
-        return verdict == Verdict.ALLOW;
+        if (verdict != Verdict.PROMPT) {
+            record(grant, c, verdict);
+            return verdict == Verdict.ALLOW ? Decision.OK
+                    : Decision.no("refused by wallet policy: " + c.operation()
+                            + " on " + c.resource().display());
+        }
+
+        var named = namer.name(c.resource());
+        if (named.status() == ResourceNames.Status.UNREACHABLE) {
+            // Refused without a dialog, deliberately. Asking someone to approve access that does not
+            // exist can only teach the habit of approving, and the call was going to fail at Google
+            // anyway — so the useful answer is the reason, not a question.
+            record(grant, c, Verdict.DENY);
+            return Decision.no("not asking: " + named.detail() + ". There is nothing to approve"
+                    + " — check the id, or give " + grant.account() + " access to it and retry.");
+        }
+
+        var resolved = named.status() == ResourceNames.Status.RESOLVED;
+        // The label is left unset when the name is unknown, so a rule written from this approval never
+        // records a guess as if it were the document's name. The reason goes in the dialog instead.
+        var enriched = resolved ? c.withResource(c.resource().withLabel(named.name())) : c;
+        var kind = resolved ? named.detail() : "NAME UNRESOLVED — " + named.detail();
+
+        var answered = prompt(grant, enriched, kind);
+        record(grant, enriched, answered);
+        return answered == Verdict.ALLOW ? Decision.OK
+                : Decision.no("denied at the wallet dialog: " + enriched.operation()
+                        + " on " + enriched.resource().display());
     }
 
-    private Verdict prompt(Grant grant, Classification c) {
+    private Verdict prompt(Grant grant, Classification c, String kind) {
         if (!core.gateway().interactive()) return Verdict.DENY;
 
         var key = grant.session() + "|" + c.resource().api() + "|" + c.resource().id() + "|" + c.tier();
@@ -51,7 +88,7 @@ public final class Gate {
             var answer = core.gateway().ask(new ApprovalAsk(
                     UUID.randomUUID().toString().substring(0, 8), grant.correlationCode(), grant.profile(),
                     grant.appName(), grant.account(), c.resource().api(), c.operation(), c.resource(),
-                    c.tier(), c.itemCount(), grant.peerCommand(), grant.pid(), grant.session()));
+                    kind, c.tier(), c.itemCount(), grant.peerCommand(), grant.pid(), grant.session()));
 
             if (!answer.allowed()) return Verdict.DENY;
             if (answer.remember()) {

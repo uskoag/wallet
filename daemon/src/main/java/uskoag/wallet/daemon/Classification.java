@@ -12,6 +12,11 @@ import uskoag.wallet.wire.Tier;
  */
 public record Classification(Tier tier, String operation, ResourceRef resource, int itemCount) {
 
+    /** Same verdict, resource now carrying the name the wallet resolved before asking anyone. */
+    public Classification withResource(ResourceRef r) {
+        return new Classification(tier, operation, r, itemCount);
+    }
+
     public static Classification read(String op, ResourceRef r) {
         return new Classification(Tier.READ, op, r, 1);
     }

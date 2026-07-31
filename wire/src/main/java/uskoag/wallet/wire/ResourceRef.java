@@ -19,6 +19,11 @@ public record ResourceRef(String api, String id, String label) {
         return BROWSE.equals(id);
     }
 
+    /** The same resource with a human name attached, once the wallet has asked Google for one. */
+    public ResourceRef withLabel(String label) {
+        return new ResourceRef(api, id, label);
+    }
+
     public String display() {
         if (label != null && !label.isBlank()) return label + "  (" + id + ")";
         return id == null ? api : id;

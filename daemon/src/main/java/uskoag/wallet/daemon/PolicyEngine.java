@@ -68,6 +68,9 @@ public final class PolicyEngine {
         r.account = account;
         r.api = res.api();
         r.resource = res.id();
+        // Only ever a name the wallet actually got out of Google; null when it could not, so a listing
+        // never presents a guess as the document's title.
+        r.label = res.label();
         r.session = tier == Tier.DESTRUCTIVE ? session : null;
         r.match = answer.match() == null ? Match.EXACT : answer.match();
         r.tier = tier;

@@ -68,14 +68,13 @@ public final class Proxy {
             var facts = new RequestFacts(api.alias, x.getRequestMethod(), "/" + path, query, body);
             var classified = Rules.classify(facts);
 
-            if (!gate.allows(grant, classified)) {
-                fail(x, 403, "refused by wallet policy: " + classified.operation()
-                        + " on " + classified.resource().display());
-                return;
-            }
-
             // Which token serves this is only knowable here: it depends on the API and the tier of this
             // individual call, not on the tool. Narrowest sufficient wins, so the wide tokens stay cold.
+            //
+            // It is settled before the policy question reaches anyone, for two reasons. There is no
+            // sense asking a person to approve access the wallet then cannot serve; and the token is the
+            // thing that makes the document's name knowable, without which the dialog can only show an
+            // id — and an id is not a question anyone can answer.
             var held = core.keyring.tokensFor(grant.account());
             var chosen = TokenPicker.pick(held, api.alias, classified.tier()).orElse(null);
             if (chosen == null) {
@@ -83,8 +82,18 @@ public final class Proxy {
                 return;
             }
             var org = core.keyring.org(chosen.orgId).orElse(null);
+            var bearer = core.tokens.accessToken(chosen, org);
+
+            var decision = gate.decide(grant, classified, res -> res.isBrowse()
+                    ? ResourceNames.Named.resolved(res.label(), "listing and search")
+                    : core.names.resolve(api, res.id(), grant.account(), bearer));
+            if (!decision.allowed()) {
+                fail(x, 403, decision.why());
+                return;
+            }
+
             chosen.used();
-            Forward.relay(x, api, path, query, body, core.tokens.accessToken(chosen, org), core.proxyPortValue());
+            Forward.relay(x, api, path, query, body, bearer, core.proxyPortValue());
         } catch (Exception e) {
             Log.error("proxy failure on " + x.getRequestURI(), e);
             try {

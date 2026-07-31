@@ -2,6 +2,7 @@ package uskoag.wallet.daemon;
 
 import uskoag.wallet.wire.ApprovalAnswer;
 import uskoag.wallet.wire.ApprovalAsk;
+import uskoag.wallet.wire.GApi;
 import uskoag.wallet.wire.Json;
 import uskoag.wallet.wire.Match;
 import uskoag.wallet.wire.PolicyReply;
@@ -46,24 +47,42 @@ public final class PolicyVerbs {
     }
 
     private String allow(PolicyRequest r) throws IOException {
+        var account = core.resolve(r.account()).orElse(r.account());
         var res = new ResourceRef(r.api(), r.resource(), null);
-        var existing = core.policy.matching(r.profile(), r.account(), null, res, r.tier());
+        var existing = core.policy.matching(r.profile(), account, null, res, r.tier());
         if (existing != null) return Json.of(PolicyReply.of(true, "already", existing.describe()));
 
         if (!core.gateway().interactive()) {
             return Json.of(PolicyReply.of(false, "no-display", "cannot ask — the wallet has no display"));
         }
+
+        // The consent has to exist before the document is discussed, and the document has to be
+        // reachable before anyone is asked about it. Both refusals below are more useful than a dialog.
+        ResourceNames.Named named;
+        try {
+            named = core.nameFor(GApi.of(r.api()), r.resource(), account, r.tier());
+        } catch (IOException e) {
+            return Json.of(PolicyReply.of(false, "no-consent", e.getMessage()));
+        }
+        if (named.status() == ResourceNames.Status.UNREACHABLE) {
+            return Json.of(PolicyReply.of(false, "unreachable",
+                    named.detail() + " — so there is nothing to write a rule about"));
+        }
+        var resolved = named.status() == ResourceNames.Status.RESOLVED;
+        if (resolved) res = res.withLabel(named.name());
+
         var answer = core.gateway().ask(new ApprovalAsk(
-                "cli", "CLI ", r.profile(), "uskoag-walletcli", r.account(), r.api(),
-                "stand a rule allowing " + r.tier(), res, r.tier(), 1, "wallet policy allow",
-                ProcessHandle.current().pid(), "cli"));
+                "cli", "CLI ", r.profile(), "uskoag-walletcli", account, r.api(),
+                "stand a rule allowing " + r.tier(), res,
+                resolved ? named.detail() : "NAME UNRESOLVED — " + named.detail(),
+                r.tier(), 1, "wallet policy allow", ProcessHandle.current().pid(), "cli"));
         if (!answer.allowed()) return Json.of(PolicyReply.of(false, "denied", "you declined"));
 
         var wanted = new ApprovalAnswer(true, true,
                 r.ops() == 0 ? answer.ops() : r.ops(),
                 r.minutes() == 0 ? answer.minutes() : r.minutes(),
                 r.match() == null ? Match.EXACT : r.match(), r.reason());
-        var rule = core.policy.remember(r.profile(), r.account(), null, res, r.tier(), wanted, r.reason());
+        var rule = core.policy.remember(r.profile(), account, null, res, r.tier(), wanted, r.reason());
         return Json.of(PolicyReply.of(true, "allowed", rule.describe()));
     }
 

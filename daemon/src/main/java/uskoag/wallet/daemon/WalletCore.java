@@ -22,6 +22,7 @@ public final class WalletCore {
     public final TokenCache tokens = new TokenCache();
     public final Grants grants = new Grants();
     public final Audit audit = new Audit();
+    public final ResourceNames names = new ResourceNames();
 
     private ApprovalGateway gateway = new HeadlessGateway();
     private volatile int proxyPort;
@@ -56,6 +57,7 @@ public final class WalletCore {
     public void lock() {
         grants.clear();
         tokens.clear();
+        names.clear();
         audit.close();
         keyring.lock();
         Log.info("locked");
@@ -116,6 +118,25 @@ public final class WalletCore {
                 req.session(), req.pid(), req.peerCommand());
         return new AccessGrant(g.token(), "http://127.0.0.1:" + proxyPort + "/g/" + api.alias + "/",
                 account.get(), g.correlationCode(), 0L, null);
+    }
+
+    /**
+     * Names a resource the way the proxy would, and refuses when the account holds no token that could
+     * serve it.
+     *
+     * <p>Consent before resource, in that order. A standing rule naming a document the account cannot
+     * open is a rule whose only possible future is a puzzling failure at Google, so it is refused here
+     * where the reason can still be stated plainly.
+     *
+     * @throws java.io.IOException naming which consent is missing, in the words that fix it
+     */
+    public ResourceNames.Named nameFor(GApi api, String id, String account, uskoag.wallet.wire.Tier tier)
+            throws java.io.IOException {
+        var held = keyring.tokensFor(account);
+        var chosen = TokenPicker.pick(held, api.alias, tier)
+                .orElseThrow(() -> new java.io.IOException(TokenPicker.explain(account, api.alias, tier, held)));
+        var org = keyring.org(chosen.orgId).orElse(null);
+        return names.resolve(api, id, account, tokens.accessToken(chosen, org));
     }
 
     /** The named account, else the only one there is. Email is rarely typed when there is no ambiguity. */
