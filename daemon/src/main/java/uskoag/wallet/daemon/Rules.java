@@ -13,6 +13,7 @@ public final class Rules {
             case "drive" -> DriveRules.classify(f);
             case "sheets" -> SheetsRules.classify(f);
             case "slides" -> SlidesRules.classify(f);
+            case "slidesexport" -> SlidesRules.classifyExport(f);
             case "docs" -> DocsRules.classify(f);
             case "gmail" -> GmailRules.classify(f);
             default -> fallback(f);

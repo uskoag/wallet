@@ -1,9 +1,11 @@
 package uskoag.wallet.ui;
 
+import javafx.collections.FXCollections;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.TextArea;
 import javafx.stage.Stage;
 import uskoag.wallet.wire.Groups;
+import uskoag.wallet.wire.ScopeCatalogue;
 import uskoag.wallet.wire.ScopeGroup;
 import uskoag.wallet.wire.Tier2;
 
@@ -18,6 +20,7 @@ import static luvjfx.Fx.label;
 import static luvjfx.Fx.scene;
 import static luvjfx.Fx.scrollPane;
 import static luvjfx.Fx.textArea;
+import static luvjfx.Fx.textField;
 import static luvjfx.Fx.vbox;
 
 /**
@@ -60,13 +63,69 @@ public final class GrantDialog {
         }
 
         var custom = textArea().promptText(
-                "One scope per line, for anything the list above does not cover.\n"
+                "One scope per line, for anything the groups above do not cover.\n"
                         + "https://www.googleapis.com/auth/calendar.readonly");
         custom.attr(t -> t.setPrefRowCount(3));
+
+        // ---- the catalogue, which is a typing aid and deliberately not a boundary ----------------
+        //
+        // Picking from it writes into the box below — the same box anyone could type into by hand, and
+        // which accepts anything whether it appears in the catalogue or not. That is the whole design:
+        // a shipped list of Google scopes is stale within months, and a picker that gated what could be
+        // asked for would then be an obstacle with no way past it. So it only saves the typing, and
+        // typing a scope URL exactly right from memory is precisely where this went wrong before.
+        var search = textField().promptText("search the scope catalogue:  drive read   ·   gmail send   ·   calendar");
+        var results = new javafx.scene.control.ListView<ScopeCatalogue.Entry>();
+        results.setPrefHeight(150);
+        results.getSelectionModel().setSelectionMode(javafx.scene.control.SelectionMode.MULTIPLE);
+        results.setCellFactory(v -> new javafx.scene.control.ListCell<>() {
+            @Override
+            protected void updateItem(ScopeCatalogue.Entry item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.display());
+                setStyle(empty || item == null ? "" : "-fx-font-size: 11px; -fx-text-fill: "
+                        + (item.tier() == Tier2.RESTRICTED ? "#b71c1c;"
+                           : item.tier() == Tier2.SENSITIVE ? "#e65100;" : "#333;"));
+            }
+        });
+        Runnable filter = () -> results.setItems(FXCollections.observableArrayList(
+                ScopeCatalogue.search(((javafx.scene.control.TextField) search.node).getText())));
+        filter.run();
+        ((javafx.scene.control.TextField) search.node).textProperty()
+                .addListener((o, was, is) -> filter.run());
+
+        var add = button("Add selected to the list below");
+        Runnable addPicked = () -> {
+            var picked = results.getSelectionModel().getSelectedItems();
+            if (picked.isEmpty()) return;
+            var area = (TextArea) custom.node;
+            var have = new java.util.LinkedHashSet<>(lines(area));
+            picked.forEach(p -> have.add(p.url()));
+            area.setText(String.join("\n", have));
+        };
+        add.attr(b -> b.setOnAction(e -> addPicked.run()));
+        results.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) addPicked.run();
+        });
+        results.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) addPicked.run();
+        });
+
         body.nodes(
-                label("Hand-written scopes").style("-fx-font-weight: bold; -fx-padding: 10 0 2 0;"),
-                label("The catalogue above will go stale; Google adds scopes and we do not. Anything typed"
-                        + " here becomes its own group.").wrapText(true)
+                label("Anything else Google offers").style("-fx-font-weight: bold; -fx-padding: 10 0 2 0;"),
+                label("A search over known Google scopes. It is a typing aid, not a limit: this list will"
+                        + " go stale because Google adds scopes and we do not, so the box underneath"
+                        + " accepts anything at all — whether it appears here or not. Red is what Google"
+                        + " calls restricted, amber sensitive.").wrapText(true)
+                        .style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                search,
+                luvjfx.Fx.fx(results),
+                hbox().spacing(8).nodes(add,
+                        label("Enter or double-click also adds")
+                                .style("-fx-font-size: 11px; -fx-text-fill: #777;")),
+                label("Scopes to request").style("-fx-font-weight: bold; -fx-padding: 10 0 2 0;"),
+                label("Everything here becomes its own group with its own token and its own expiry."
+                        + " Edit freely — hand-typed lines are as valid as picked ones.").wrapText(true)
                         .style("-fx-font-size: 11px; -fx-text-fill: #666;"),
                 custom);
 

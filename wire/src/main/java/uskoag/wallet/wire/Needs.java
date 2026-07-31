@@ -24,6 +24,10 @@ public final class Needs {
             case "sheets" -> List.of("https://www.googleapis.com/auth/spreadsheets");
             case "docs" -> List.of("https://www.googleapis.com/auth/documents");
             case "slides" -> List.of("https://www.googleapis.com/auth/presentations");
+            // Rendering a deck to PNG reads the file, so it is a Drive read and not a presentations
+            // edit. Asking for the narrower thing is the point: an export must never be served by a
+            // token that could also rewrite the deck it is rendering.
+            case "slidesexport" -> List.of("https://www.googleapis.com/auth/drive.readonly");
             case "gmail" -> tier == Tier.READ
                     ? List.of("https://www.googleapis.com/auth/gmail.readonly")
                     : List.of("https://www.googleapis.com/auth/gmail.modify");
@@ -43,7 +47,7 @@ public final class Needs {
      */
     public static List<String> alternatives(String api, Tier tier) {
         return switch (api) {
-            case "drive" -> List.of("https://www.googleapis.com/auth/drive");
+            case "drive", "slidesexport" -> List.of("https://www.googleapis.com/auth/drive");
             case "gmail" -> List.of("https://www.googleapis.com/auth/gmail.modify");
             default -> List.of();
         };

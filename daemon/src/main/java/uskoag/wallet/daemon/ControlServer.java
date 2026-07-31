@@ -61,6 +61,21 @@ public final class ControlServer {
         Restrict.toOwner(WalletPaths.handshakeFile());
     }
 
+    /**
+     * Catches {@link Throwable}, not {@link Exception}, and the difference is not theoretical.
+     *
+     * <p>An {@code Error} escaping here produced the worst failure this thing can have: the exchange was
+     * closed unanswered, the client reported {@code HTTP/1.1 header parser received no bytes}, and
+     * <b>nothing at all was written to the log</b>. Which is to say the wallet appeared to be running
+     * and answering — {@code ping} and {@code status} both worked — while every {@code access} died with
+     * a message naming nothing, pointing nowhere, and leaving no trace to look up afterwards.
+     *
+     * <p>The way it actually happens is mundane and will happen again: rebuilding the wallet replaces
+     * the jar underneath the running process, and the next verb that needs a class not yet loaded gets
+     * a {@code NoClassDefFoundError} instead. The jar is read lazily, so the verbs exercised at startup
+     * keep working and only the untouched paths break — which is exactly why the wallet looked healthy.
+     * A wallet still needs restarting after a rebuild; the point of this is that it now says so.
+     */
     private void handle(HttpExchange x) {
         try {
             if (!token.equals(x.getRequestHeaders().getFirst("X-Wallet-Token"))) {
@@ -70,15 +85,30 @@ public final class ControlServer {
             var verb = x.getRequestURI().getPath().substring("/wallet/".length());
             var body = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             reply(x, 200, verbs.dispatch(verb, body));
-        } catch (Exception e) {
-            Log.error("control verb failed", e);
+        } catch (Throwable t) {
+            Log.error("control verb failed: " + x.getRequestURI().getPath(), t);
             try {
-                reply(x, 500, Json.of(java.util.Map.of("error", String.valueOf(e.getMessage()))));
+                reply(x, 500, Json.of(java.util.Map.of("error", describe(t))));
             } catch (IOException ignored) {
+                // client already gone
             }
         } finally {
             x.close();
         }
+    }
+
+    /**
+     * Several of these carry a null message, and "error: null" is barely better than the silence this
+     * replaced. A {@code LinkageError} in particular says everything in its type and nothing in its
+     * text, so the type is named and the likely cause is spelled out rather than left to be rediscovered.
+     */
+    private static String describe(Throwable t) {
+        var msg = t.getMessage() == null || t.getMessage().isBlank()
+                ? t.getClass().getSimpleName() : t.getClass().getSimpleName() + ": " + t.getMessage();
+        return t instanceof LinkageError
+                ? msg + "  — this wallet is running from a jar that has since been rebuilt."
+                        + " Restart uskoag-wallet."
+                : msg;
     }
 
     private static void reply(HttpExchange x, int status, String json) throws IOException {

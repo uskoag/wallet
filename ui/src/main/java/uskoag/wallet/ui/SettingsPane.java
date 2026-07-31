@@ -57,6 +57,8 @@ public final class SettingsPane {
 
         var save = button("Save").defaultButton(true);
         var reload = button("Reload").cancelButton(true);
+        var changePass = button("Change passphrase...");
+        changePass.attr(b -> b.setOnAction(e -> PassphraseWindow.show(core)));
 
         save.attr(b -> b.setOnAction(e -> {
             try {
@@ -112,8 +114,18 @@ public final class SettingsPane {
                 note("With several org accounts on one machine the default browser is often signed in as"
                         + " the wrong one. The copyable-link window appears either way."),
                 row("Auto-lock after idle minutes", autoLock,
-                        "0 disables it. NOT YET ENFORCED — no timer exists, so this value currently does"
-                                + " nothing. It is shown rather than hidden so the gap is visible."),
+                        "0 disables it. Idle means idle for the wallet, not for you — every approval and"
+                                + " every proxied call defers it, so a batch running unattended for two"
+                                + " hours does not trip it. This is the second lock and it answers a"
+                                + " different question from an approval: the approval says what may be"
+                                + " touched, this says for how long anything at all may be."),
+
+                label("Passphrase").style("-fx-font-weight: bold;"),
+                hbox().spacing(8).nodes(changePass),
+                note("Only the keyring file is rewritten. Every stored token survives, the audit stays"
+                        + " readable across the change because its column key lives inside the keyring"
+                        + " rather than being derived from the passphrase, and nothing at Google is"
+                        + " touched."),
 
                 hbox().spacing(8).nodes(save, reload),
                 status.wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #1b5e20;"));

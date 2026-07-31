@@ -76,9 +76,9 @@ public final class OrgsPane {
                     ((TextArea) domains.node).setText(String.join("\n", picked.domains()));
                 });
 
-        var upload = button("Add / replace credentials.json");
-        var save = button("Save domains");
-        var remove = button("Remove client");
+        var upload = button("Add / replace credentials.json  (A)");
+        var save = button("Save domains  (S)");
+        var remove = button("Remove client  (Del)");
         var reload = button("Refresh");
 
         upload.attr(b -> b.setOnAction(e -> {
@@ -130,6 +130,24 @@ public final class OrgsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
+        // Single keys, matching the other tabs. Only fires from the table itself, so typing a domain
+        // pattern containing an 'a' or an 's' in the box below cannot set one of these off.
+        table.setOnKeyPressed(e -> {
+            switch (e.getCode()) {
+                case DELETE -> ((javafx.scene.control.Button) remove.node).fire();
+                case A -> ((javafx.scene.control.Button) upload.node).fire();
+                case S -> ((javafx.scene.control.Button) save.node).fire();
+                default -> { }
+            }
+        });
+
+        // The same question the Accounts tab answers on hover: everything about the row without having
+        // to select it and read it out of four columns.
+        table.setRowFactory(t -> {
+            var row = new javafx.scene.control.TableRow<OrgInfo>();
+            row.itemProperty().addListener((o, was, is) -> row.setTooltip(tooltipFor(is)));
+            return row;
+        });
 
         return vbox().spacing(8).padding(12).nodes(
                         label("OAuth clients").style("-fx-font-weight: bold;"),
@@ -144,7 +162,31 @@ public final class OrgsPane {
                                 .style("-fx-font-size: 11px; -fx-font-weight: bold;"),
                         domains,
                         hbox().spacing(6).nodes(upload, save, remove, reload),
+                        label("In the table:   Del removes a client   ·   A adds or replaces its"
+                                + " credentials.json   ·   S saves the domains   ·   hover any row for"
+                                + " its full detail")
+                                .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                         status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
+    }
+
+    private static javafx.scene.control.Tooltip tooltipFor(OrgInfo o) {
+        if (o == null) return null;
+        var bad = problems(o);
+        var tip = new javafx.scene.control.Tooltip(
+                o.id() + (o.label() == null || o.label().isBlank() ? "" : "   " + o.label()) + "\n"
+                        + "client id:      " + (o.clientId() == null ? "(none)" : o.clientId()) + "\n"
+                        + "created under:  " + (o.owner() == null ? "(unknown)" : o.owner()) + "\n"
+                        + "accounts using: " + o.accounts() + "\n"
+                        + "added:          " + Cols.stamp(o.addedAt()) + "\n\n"
+                        + "domains answered for:\n  "
+                        + (o.domains().isEmpty() ? "(none — accounts must name --org)"
+                           : String.join("\n  ", o.domains()))
+                        + (bad.isEmpty() ? "" : "\n\nPATTERN PROBLEMS:\n  " + bad));
+        tip.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 11px;");
+        tip.setShowDelay(javafx.util.Duration.millis(400));
+        tip.setShowDuration(javafx.util.Duration.seconds(60));
+        tip.setWrapText(false);
+        return tip;
     }
 
     private static List<String> patterns(luvjfx.FxTextArea area) {

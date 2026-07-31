@@ -78,6 +78,17 @@ public final class TokenVerbs {
                 "note", "removed from the wallet only; Google's grants are untouched"));
     }
 
+    /**
+     * The same list {@link #removeUnused} would delete, for a caller that wants to show it first.
+     *
+     * <p>Exposed so the window and the command line cannot disagree about what "unused" means. They
+     * did: the window filtered on never-used while the verb applied the idle window, so the button
+     * listed one set and deleted another, and the set it deleted was the one nobody had read.
+     */
+    public List<TokenInfo> staleTokens(int days) {
+        return stale(days);
+    }
+
     /** Never used at all, or not used within the window. Both are worth offering to drop. */
     private List<TokenInfo> stale(int days) {
         var cutoff = days <= 0 ? 0 : System.currentTimeMillis() - days * 86_400_000L;

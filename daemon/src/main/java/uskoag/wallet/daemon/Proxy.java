@@ -95,11 +95,18 @@ public final class Proxy {
 
             chosen.used();
             Forward.relay(x, api, path, query, body, bearer, core.proxyPortValue());
-        } catch (Exception e) {
-            Log.error("proxy failure on " + x.getRequestURI(), e);
+        } catch (Throwable t) {
+            // Throwable, not Exception, for the same reason as ControlServer.handle: an Error escaping
+            // here closes the exchange unanswered and logs nothing, so the caller sees "received no
+            // bytes" and there is no trace of it afterwards. Always answer, and always leave a trace.
+            Log.error("proxy failure on " + x.getRequestURI(), t);
             try {
-                fail(x, 502, "wallet could not complete the call: " + e.getMessage());
+                fail(x, 502, "wallet could not complete the call: " + t
+                        + (t instanceof LinkageError
+                           ? " — this wallet is running from a jar that has since been rebuilt."
+                             + " Restart uskoag-wallet." : ""));
             } catch (IOException ignored) {
+                // client already gone
             }
         }
     }

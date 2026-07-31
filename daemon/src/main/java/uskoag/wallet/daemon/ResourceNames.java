@@ -138,6 +138,9 @@ public final class ResourceNames {
             case SHEETS -> api.upstream + "v4/spreadsheets/" + e + "?fields=properties.title";
             case DOCS -> api.upstream + "v1/documents/" + e + "?fields=title";
             case SLIDES -> api.upstream + "v1/presentations/" + e + "?fields=title";
+            // The export host serves no metadata of its own, and the id is a presentation id, so the
+            // name comes from the Slides API. Without this the dialog for a render would show a bare id.
+            case SLIDES_EXPORT -> GApi.SLIDES.upstream + "v1/presentations/" + e + "?fields=title";
             case DRIVE -> api.upstream + "drive/v3/files/" + e
                     + "?fields=name,mimeType,trashed,owners(emailAddress)&supportsAllDrives=true";
             default -> null;
@@ -157,7 +160,7 @@ public final class ResourceNames {
                 yield named(props == null ? null : str(props, "title"), "spreadsheet");
             }
             case DOCS -> named(str(o, "title"), "document");
-            case SLIDES -> named(str(o, "title"), "presentation");
+            case SLIDES, SLIDES_EXPORT -> named(str(o, "title"), "presentation");
             case DRIVE -> {
                 var kind = kindOf(str(o, "mimeType"));
                 var owner = owner(o);

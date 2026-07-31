@@ -31,6 +31,30 @@ public final class WalletCredentialSource implements CredentialSource {
         return WalletClient.ifRunning().isPresent() || WalletLauncher.walletJar().isPresent();
     }
 
+    /**
+     * Running and unlocked, asked without disturbing anyone.
+     *
+     * <p>Deliberately does not start a wallet that is not running, and deliberately does not ask a
+     * locked one for anything: both would put a window in front of whoever happens to be at the machine
+     * on behalf of a caller that said it was unattended. A wallet that cannot be reached answers no.
+     */
+    @Override
+    public boolean ready() {
+        try {
+            return WalletClient.ifRunning()
+                    .map(c -> {
+                        try {
+                            return c.status().unlocked();
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .orElse(false);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @Override
     public ServiceAccess access(AccessSpec spec) throws IOException {
         var client = WalletLauncher.ensureRunning().orElseThrow(() -> new IOException(

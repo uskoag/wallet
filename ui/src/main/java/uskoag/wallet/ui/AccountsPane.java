@@ -88,14 +88,20 @@ public final class AccountsPane {
                             + "\n\nScopes:\n  " + String.join("\n  ", t.scopes()));
         });
 
-        var grant = button("Grant...");
-        var remove = button("Remove token");
+        var grant = button("Grant...  (G)");
+        var remove = button("Remove token  (Del)");
+        var up = button("Prefer sooner  (U)");
+        var down = button("Prefer later  (D)");
         var removeUnused = button("Remove unused...");
+        var unusedDays = textField();
+        ((TextField) unusedDays.node).setPrefColumnCount(4);
+        ((TextField) unusedDays.node).setText("0");
         var forget = button("Forget account");
+        var googlePage = button("Google's permissions page");
         var copy = button("Copy as TSV");
         var reload = button("Refresh");
 
-        grant.attr(b -> b.setOnAction(e -> {
+        Runnable doGrant = () -> {
             var who = ((TextField) email.node).getText().trim();
             if (who.isEmpty()) {
                 status.text("Type the account email first.");
@@ -119,9 +125,10 @@ public final class AccountsPane {
                     javafx.application.Platform.runLater(() -> status.text(String.valueOf(ex.getMessage())));
                 }
             }, "wallet-consent").start();
-        }));
+        };
+        grant.attr(b -> b.setOnAction(e -> doGrant.run()));
 
-        remove.attr(b -> b.setOnAction(e -> {
+        Runnable doRemove = () -> {
             var sel = tree.getSelectionModel().getSelectedItem();
             if (sel == null || sel.getValue().token() == null) {
                 status.text("Select a token first.");
@@ -130,21 +137,85 @@ public final class AccountsPane {
             var t = sel.getValue().token();
             if (!Confirm.ask("Remove token", "Remove " + t.label() + " for " + t.account() + "?\n\n"
                     + "This removes it from the wallet only. Google's grant survives - revoke that at\n"
-                    + "myaccount.google.com/permissions if that is what you mean.", "Remove", "Cancel")) return;
+                    + "myaccount.google.com/permissions if that is what you mean. The button beside\n"
+                    + "this one opens that page.", "Remove", "Cancel")) return;
             act(status, refresh, () -> tokens.remove(new Asks.TokenRef(t.account(), t.group())));
+        };
+        remove.attr(b -> b.setOnAction(e -> doRemove.run()));
+
+        // Opening Google's own page is the other half of removing a token, and worth its own button
+        // rather than a sentence in a dialog nobody can click. Removing here only stops THIS machine
+        // using the grant; the grant itself keeps existing until it is revoked there.
+        googlePage.attr(b -> b.setOnAction(e -> {
+            try {
+                java.awt.Desktop.getDesktop().browse(
+                        java.net.URI.create("https://myaccount.google.com/permissions"));
+                status.text("Opened Google's permissions page. Removing a token here never touches it.");
+            } catch (Exception ex) {
+                status.text("Could not open a browser. The page is https://myaccount.google.com/permissions");
+            }
         }));
 
         removeUnused.attr(b -> b.setOnAction(e -> {
-            var stale = core.accounts().stream().flatMap(a -> a.unused().stream()).toList();
-            if (stale.isEmpty()) {
-                status.text("Every token has been used at least once.");
+            int days;
+            try {
+                days = Integer.parseInt(((TextField) unusedDays.node).getText().trim());
+                if (days < 0) throw new NumberFormatException();
+            } catch (NumberFormatException ex) {
+                status.text("The idle threshold must be a whole number of days. 0 means never used at all.");
                 return;
             }
-            var listing = stale.stream().map(t -> "  " + t.account() + "   " + t.label()).toList();
-            if (!Confirm.ask("Remove unused tokens", "Never used:\n\n" + String.join("\n", listing)
-                    + "\n\nRemove from the wallet? Google's grants survive.", "Remove", "Cancel")) return;
-            act(status, refresh, () -> tokens.removeUnused(new Asks.Unused(0)));
+            // Asked of the engine rather than recomputed here. The UI used to filter on neverUsed() while
+            // the CLI applied a --days window, so the same button and the same verb disagreed about what
+            // "unused" meant — and the one that actually deleted was the one nobody had read.
+            var stale = tokens.staleTokens(days);
+            if (stale.isEmpty()) {
+                status.text(days == 0 ? "Every token has been used at least once."
+                        : "No token has been idle for " + days + " day(s).");
+                return;
+            }
+            var listing = stale.stream().map(t -> "  " + t.account() + "   " + t.label()
+                    + "   (" + AccountsTable.ago(t.lastUsed()) + ")").toList();
+            if (!Confirm.ask("Remove unused tokens",
+                    (days == 0 ? "Never used:" : "Never used, or idle for over " + days + " day(s):")
+                            + "\n\n" + String.join("\n", listing)
+                            + "\n\nRemove from the wallet? Google's grants survive, so anything removed"
+                            + "\nby mistake comes back with one consent.", "Remove " + stale.size(), "Cancel")) {
+                return;
+            }
+            act(status, refresh, () -> tokens.removeUnused(new Asks.Unused(days)));
         }));
+
+        /**
+         * Preference among tokens that all satisfy a request; lower wins.
+         *
+         * <p>Only ever a tie-break. The picker still prefers a token carrying exactly what a request
+         * needs over one that merely subsumes it, so this cannot be used to make a full-control token
+         * serve a read — which is the one thing an ordering control must not be able to do.
+         */
+        java.util.function.IntConsumer move = delta -> {
+            var sel = tree.getSelectionModel().getSelectedItem();
+            if (sel == null || sel.getValue().token() == null) {
+                status.text("Select a token first.");
+                return;
+            }
+            var t = sel.getValue().token();
+            var account = core.accounts().stream()
+                    .filter(a -> a.email().equalsIgnoreCase(t.account())).findFirst().orElse(null);
+            if (account == null) return;
+            var order = new ArrayList<>(account.tokens().stream().map(TokenInfo::group).toList());
+            var at = order.indexOf(t.group());
+            var to = at + delta;
+            if (at < 0 || to < 0 || to >= order.size()) {
+                status.text(t.label() + " is already " + (delta < 0 ? "first" : "last") + " for this account.");
+                return;
+            }
+            java.util.Collections.swap(order, at, to);
+            act(status, refresh, () -> tokens.reorder(new Asks.Reorder(t.account(), order)));
+            status.text(t.label() + " now sits at position " + (to + 1) + " for " + t.account() + ".");
+        };
+        up.attr(b -> b.setOnAction(e -> move.accept(-1)));
+        down.attr(b -> b.setOnAction(e -> move.accept(1)));
 
         forget.attr(b -> b.setOnAction(e -> {
             var who = ((TextField) email.node).getText().trim();
@@ -163,6 +234,27 @@ public final class AccountsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
+        // Single keys, no chords. Every one of these is also a button — the keys are the fast path for
+        // someone already in the table, not the only way to reach the action.
+        tree.setOnKeyPressed(e -> {
+            switch (e.getCode()) {
+                case DELETE -> doRemove.run();
+                case U -> move.accept(-1);
+                case D -> move.accept(1);
+                case G -> doGrant.run();
+                default -> { }
+            }
+        });
+
+        // The detail box below already lists the scopes, but only for the selected row. Hovering answers
+        // the question the table raises and the box cannot — "what does THAT one carry" — without
+        // changing what is selected and losing your place.
+        tree.setRowFactory(t -> {
+            var row = new javafx.scene.control.TreeTableRow<Row>();
+            row.itemProperty().addListener((o, was, is) -> row.setTooltip(tooltipFor(is)));
+            return row;
+        });
+
         // The tree takes whatever the window has spare; at its preferred height the rest of a resized
         // window was dead space below the buttons.
         Cols.fill(tree);
@@ -175,8 +267,33 @@ public final class AccountsPane {
                 luvjfx.Fx.fx(tree),
                 detail,
                 hbox().spacing(6).nodes(label("email"), email, label("client"), client),
-                hbox().spacing(6).nodes(grant, remove, removeUnused, forget, copy, reload),
+                hbox().spacing(6).nodes(grant, remove, up, down, forget),
+                hbox().spacing(6).nodes(removeUnused, label("idle days (0 = never used)"), unusedDays,
+                        googlePage, copy, reload),
+                label("In the table:   Del removes a token   ·   U prefers it sooner   ·   D prefers it"
+                        + " later   ·   G grants   ·   hover any row for its exact scopes")
+                        .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                 status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
+    }
+
+    /** Everything the row knows, for a hover — the exact scopes above all, which is the real question. */
+    private static javafx.scene.control.Tooltip tooltipFor(Row row) {
+        if (row == null || row.token() == null) return null;
+        var t = row.token();
+        var tip = new javafx.scene.control.Tooltip(
+                t.label() + "   (" + t.account() + ")\n"
+                        + t.detail() + "\n"
+                        + "Google classes this: " + t.tier().label + "\n"
+                        + "Used " + TokenInfo.count(t.useCount()) + " time(s), last "
+                        + AccountsTable.ago(t.lastUsed()) + "\n\n"
+                        + String.join("\n", t.scopes()));
+        tip.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 11px;");
+        tip.setShowDelay(javafx.util.Duration.millis(400));
+        // Long enough to actually read a dozen scope URLs; the default hides while you are still on the
+        // second line, which makes the tooltip worse than useless for exactly the case it is here for.
+        tip.setShowDuration(javafx.util.Duration.seconds(60));
+        tip.setWrapText(false);
+        return tip;
     }
 
     private static void act(luvjfx.FxLabel status, Runnable refresh, Action action) {

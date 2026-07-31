@@ -16,7 +16,22 @@ public enum GApi {
     DOCS("docs", "https://docs.googleapis.com/"),
     GMAIL("gmail", "https://gmail.googleapis.com/"),
     YOUTUBE("youtube", "https://youtube.googleapis.com/"),
-    OAUTH2("oauth2", "https://www.googleapis.com/");
+    OAUTH2("oauth2", "https://www.googleapis.com/"),
+
+    /**
+     * The one non-API host here, and it exists so that a raw access token never has to leave the wallet.
+     *
+     * <p>Slides has no API for a full-resolution page render. The only route is an undocumented endpoint
+     * on {@code docs.google.com} that takes a plain bearer header, which left uskoag-gslides needing an
+     * actual Google token in its own process — the single thing this design does not allow. Fronting the
+     * host closes that: the tool gets the same loopback handle as for everything else, and the request is
+     * classified and recorded like any other.
+     *
+     * <p>Deliberately a separate alias rather than a second root for {@code slides}. It is a different
+     * host with a different URL shape, and {@link uskoag.wallet.daemon} refuses anything under it that is
+     * not the export path, so a general-purpose passthrough to docs.google.com is not what got added.
+     */
+    SLIDES_EXPORT("slidesexport", "https://docs.google.com/");
 
     public final String alias, upstream;
 
