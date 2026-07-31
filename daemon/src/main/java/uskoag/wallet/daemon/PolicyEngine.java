@@ -89,12 +89,31 @@ public final class PolicyEngine {
         r.match = answer.match() == null ? Match.EXACT : answer.match();
         r.tier = tier;
         r.opsBudget = answer.ops();
-        r.expiresAt = answer.minutes() > 0 ? System.currentTimeMillis() + answer.minutes() * 60_000L : 0;
+        r.expiresAt = expiryFor(tier, answer.minutes());
         r.createdAt = System.currentTimeMillis();
         r.note = note;
         keyring.data().rules().add(r);
         keyring.save();
         return r;
+    }
+
+    /**
+     * When a permission of this tier runs out. Never "not at all".
+     *
+     * <p>Enforced here rather than only in the dialog, because the dialog is not the control: the CLI
+     * reaches the same operation, and a ceiling that only one route respects is a suggestion. See
+     * {@link Tier#maxMinutes} for why the ceilings are what they are and why they are not configurable.
+     *
+     * @param minutes what was asked for; 0 or anything past the tier's ceiling is clamped to the ceiling
+     */
+    public long expiryFor(Tier tier, int minutes) {
+        var cap = tier.maxMinutes;
+        var granted = minutes <= 0 ? cap : Math.min(minutes, cap);
+        if (minutes <= 0 || minutes > cap) {
+            Log.warn(tier + " permission asked for " + (minutes <= 0 ? "no expiry" : Span.describe(minutes))
+                    + "; capped at " + Span.describe(cap));
+        }
+        return System.currentTimeMillis() + granted * 60_000L;
     }
 
     public synchronized List<PolicyRule> rules() {
@@ -122,12 +141,19 @@ public final class PolicyEngine {
                 .filter(r -> id != null && id.equals(r.id)).findFirst()
                 .orElseThrow(() -> new IOException("no rule with id " + id));
 
-        if (minutes > 0 && rule.expiresAt == 0) {
-            throw new IOException("rule " + id + " already has no expiry — adding " + Span.describe(minutes)
-                    + " would shorten it. Revoke it instead, or re-approve with a bounded span.");
+        // The ceiling applies to extending too, or extending would simply be the way around it: top up by
+        // the maximum, repeatedly, and the cap has bought nothing. So an extension can push the expiry no
+        // further than the tier's ceiling measured from now — which still always buys a full fresh window,
+        // just never an accumulating one.
+        var now = System.currentTimeMillis();
+        var tier = rule.tier == null ? Tier.READ : rule.tier;
+        var ceiling = now + tier.maxMinutes * 60_000L;
+        var wanted = minutes <= 0 ? ceiling : Math.max(now, rule.expiresAt) + minutes * 60_000L;
+        rule.expiresAt = Math.min(wanted, ceiling);
+        if (wanted > ceiling) {
+            Log.warn("extension of " + tier + " rule " + id + " capped at "
+                    + Span.describe(tier.maxMinutes) + " from now");
         }
-        rule.expiresAt = minutes <= 0 ? 0
-                : Math.max(System.currentTimeMillis(), rule.expiresAt) + minutes * 60_000L;
         rule.opsUsed = 0;
         keyring.save();
         return rule.describe();

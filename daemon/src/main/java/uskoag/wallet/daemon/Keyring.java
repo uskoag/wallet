@@ -141,6 +141,34 @@ public final class Keyring {
         Arrays.fill(previous, '\0');
     }
 
+    /**
+     * Is this the passphrase this wallet is unlocked with?
+     *
+     * <p>Used to re-ask before an irreversible operation. Compared against the copy already in memory
+     * rather than by re-deriving the key, because the point is to prove a person is present, not to
+     * re-open the keyring — and re-deriving would be a slow KDF run on the request path for no gain.
+     * Byte-wise constant time, so a wrong answer leaks nothing about how much of it was right.
+     */
+    public synchronized boolean verify(char[] phrase) {
+        if (data == null || passphrase == null || phrase == null) return false;
+        var mine = utf8(passphrase);
+        var theirs = utf8(phrase);
+        try {
+            return java.security.MessageDigest.isEqual(mine, theirs);
+        } finally {
+            Arrays.fill(mine, (byte) 0);
+            Arrays.fill(theirs, (byte) 0);
+        }
+    }
+
+    /** Via a CharBuffer rather than a String, so the passphrase never lands in the string pool. */
+    private static byte[] utf8(char[] chars) {
+        var encoded = StandardCharsets.UTF_8.encode(java.nio.CharBuffer.wrap(chars));
+        var out = new byte[encoded.remaining()];
+        encoded.get(out);
+        return out;
+    }
+
     /** The audit's column key, available only while unlocked. */
     public SecretKey auditKey() {
         return new SecretKeySpec(Base64.getDecoder().decode(data().auditKeyB64), "AES");

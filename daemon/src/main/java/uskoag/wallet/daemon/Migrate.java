@@ -23,10 +23,60 @@ public final class Migrate {
         }
         if ("3".equals(data.version)) {
             three2four(data);
+            data.version = "4";
+            changed = true;
+        }
+        if ("4".equals(data.version)) {
+            four2five(data);
             data.version = KeyringData.VERSION;
             changed = true;
         }
         return changed;
+    }
+
+    /**
+     * v4 kept settings in {@code wallet.toml}, outside the encryption, where anything running as this
+     * user could set {@code readRequiresRule = false} and switch the policy layer off without touching
+     * the wallet. v5 keeps them in the keyring.
+     *
+     * <p>The old file is imported so nothing configured is lost, then renamed — an abandoned toml left
+     * in place would keep looking authoritative to anyone who found it while no longer being read, which
+     * is a worse outcome than deleting it outright.
+     */
+    private static void four2five(KeyringData data) {
+        data.settings = WalletSettings.fromLegacyToml();
+
+        // v4 could store a rule with no expiry at all. v5 caps every tier, so any surviving open-ended
+        // rule is brought under its ceiling rather than grandfathered: a permission granted before the
+        // ceiling existed is exactly the kind nobody remembers granting.
+        var capped = 0;
+        var now = System.currentTimeMillis();
+        for (var r : data.rules()) {
+            var tier = r.tier == null ? uskoag.wallet.wire.Tier.READ : r.tier;
+            var ceiling = now + tier.maxMinutes * 60_000L;
+            if (r.expiresAt <= 0 || r.expiresAt > ceiling) {
+                r.expiresAt = ceiling;
+                capped++;
+            }
+        }
+        if (capped > 0) Log.info("keyring migration 4 -> 5: " + capped + " rule(s) brought under the new"
+                + " per-tier expiry ceilings");
+        var toml = uskoag.wallet.wire.WalletPaths.configFile();
+        try {
+            if (java.nio.file.Files.exists(toml)) {
+                var retired = toml.resolveSibling(toml.getFileName() + ".imported-into-keyring");
+                java.nio.file.Files.move(toml, retired,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Log.info("keyring migrated 4 -> 5: settings moved inside the keyring; "
+                        + toml.getFileName() + " imported and renamed to " + retired.getFileName());
+                return;
+            }
+        } catch (Exception e) {
+            Log.warn("settings imported, but " + toml.getFileName() + " could not be renamed - "
+                    + "delete it by hand, it is no longer read: " + e);
+            return;
+        }
+        Log.info("keyring migrated 4 -> 5: settings now live inside the keyring");
     }
 
     /**

@@ -163,6 +163,10 @@ public final class AccountsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
+        // The tree takes whatever the window has spare; at its preferred height the rest of a resized
+        // window was dead space below the buttons.
+        Cols.fill(tree);
+
         return vbox().spacing(8).padding(12).nodes(
                 label("Accounts and tokens").style("-fx-font-weight: bold;"),
                 label("One token per scope group, so each expires on its own and an unused mail grant"

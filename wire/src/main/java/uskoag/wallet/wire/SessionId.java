@@ -31,11 +31,34 @@ public final class SessionId {
         return HexFormat.of().formatHex(b);
     }
 
-    /** The environment's session when one was exported, else one derived from the nearest long-lived ancestor. */
+    /** How much of a hand-written session id is kept. Long enough for a sentence, short enough for a column. */
+    public static final int MAX_LABEL = 120;
+
+    /**
+     * The environment's session when one was exported, else one derived from the nearest long-lived
+     * ancestor.
+     *
+     * <p>A client is encouraged to export something that reads as intent — {@code "invoice reconciliation,
+     * March"} rather than a hex string. This value is what the approval dialog and the audit show, and
+     * "which run of work is this" is a question a person answers from words, not from
+     * {@code a3f9c1e0b7d24. }. It is a correlation key and never an authorization boundary, so there is
+     * nothing lost by making it legible.
+     *
+     * <p>Sanitised rather than trusted: control characters are stripped and the length is capped, because
+     * this string is rendered in a dialog a person is about to make a security decision in, and a caller
+     * that can inject newlines into it can push the real question off the visible area.
+     */
     public static String current() {
         var env = System.getenv(ENV);
-        if (env != null && !env.isBlank()) return env.trim();
+        if (env != null && !env.isBlank()) return label(env);
         return fromAncestry().orElseGet(SessionId::random);
+    }
+
+    /** Printable, single-line, bounded. Never rejects — a bad label must not stop the work. */
+    public static String label(String raw) {
+        var clean = raw.trim().replaceAll("[\\p{Cntrl}\\p{Cc}\\p{Cf}]", " ").replaceAll("\\s{2,}", " ").trim();
+        if (clean.isEmpty()) return random();
+        return clean.length() <= MAX_LABEL ? clean : clean.substring(0, MAX_LABEL - 1) + "…";
     }
 
     /**

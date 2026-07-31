@@ -37,10 +37,21 @@ public final class WalletApp extends Application {
         }
 
         Tray.install(() -> MainWindow.show(wallet.core), this::lock);
-        UnlockWindow.show(wallet.core, () -> {
-            MainWindow.show(wallet.core);
-            Tray.note("uskoag wallet", "Unlocked. Tools on this machine can now reach Google through it.");
-        }, null);
+
+        // Nothing on screen at startup, by default. The main window was appearing on every launch and
+        // being closed again immediately, which is a step added to a thing that runs at boot; and the
+        // passphrase is not asked for until something actually needs it, so starting the wallet costs
+        // nothing. Both windows are one tray click, or one more launch of the exe, away.
+        var args = getParameters().getRaw();
+        if (args.contains("--show")) {
+            UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), null);
+        } else if (args.contains("--unlock")) {
+            UnlockWindow.show(wallet.core, () -> Tray.note("uskoag wallet",
+                    "Unlocked. Tools on this machine can now reach Google through it."), null);
+        } else {
+            Tray.note("uskoag wallet", "Running, and locked. The passphrase is asked for when a tool"
+                    + " first needs it.");
+        }
     }
 
     /** What someone starting an already-running app actually wants: its window, not a warning. */

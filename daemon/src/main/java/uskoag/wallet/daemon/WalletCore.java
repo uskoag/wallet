@@ -17,7 +17,14 @@ import java.util.Optional;
 public final class WalletCore {
 
     public final Keyring keyring = new Keyring();
-    public final WalletSettings settings = WalletSettings.load();
+
+    /**
+     * Defaults until the keyring is opened, then the stored values are copied <em>into</em> this same
+     * object. The identity is shared with {@link PolicyEngine}, so it must never be replaced — and the
+     * defaults being the strict ones means a locked wallet is never the permissive one.
+     */
+    public final WalletSettings settings = new WalletSettings();
+
     public final PolicyEngine policy = new PolicyEngine(keyring, settings);
     public final TokenCache tokens = new TokenCache();
     public final Grants grants = new Grants();
@@ -46,6 +53,7 @@ public final class WalletCore {
     public void unlock(char[] passphrase) throws java.io.IOException {
         if (keyring.exists()) keyring.unlock(passphrase);
         else keyring.create(passphrase);
+        settings.copyFrom(keyring.data().settings());
         audit.open(keyring.auditKey());
         Log.info("unlocked: " + keyring.data().orgs().size() + " org(s), "
                 + keyring.accountNames().size() + " account(s), "
@@ -118,6 +126,19 @@ public final class WalletCore {
                 req.session(), req.pid(), req.peerCommand());
         return new AccessGrant(g.token(), "http://127.0.0.1:" + proxyPort + "/g/" + api.alias + "/",
                 account.get(), g.correlationCode(), 0L, null);
+    }
+
+    /**
+     * Writes the live settings back into the keyring, which is the only place they are kept.
+     *
+     * <p>Only the wallet's own Settings tab calls this. There is deliberately no verb for it: a process
+     * able to set {@code readRequiresRule = false} over the socket would have made every other control
+     * in here decorative.
+     */
+    public void saveSettings() throws java.io.IOException {
+        keyring.data().settings().copyFrom(settings);
+        keyring.save();
+        Log.info("settings updated");
     }
 
     /**

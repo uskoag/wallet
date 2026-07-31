@@ -121,6 +121,8 @@ public final class OrgsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
+        Cols.fill((javafx.scene.layout.Region) list.node);
+
         return vbox().spacing(8).padding(12).nodes(
                 label("OAuth clients").style("-fx-font-weight: bold;"),
                 label("One credentials.json per Cloud project. Every account and every tool in the"

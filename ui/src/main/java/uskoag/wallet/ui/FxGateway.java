@@ -17,7 +17,7 @@ public final class FxGateway implements ApprovalGateway {
 
     @Override
     public ApprovalAnswer ask(ApprovalAsk ask) {
-        return ApprovalWindow.ask(ask, core.settings.destructiveOps, core.settings.destructiveMinutes);
+        return ApprovalWindow.ask(ask, core.settings, core.keyring::verify);
     }
 
     @Override

@@ -33,7 +33,8 @@ public final class MainWindow {
                     new Tab("Clients", OrgsPane.build(core)),
                     new Tab("Accounts", AccountsPane.build(core)),
                     new Tab("Permissions", PolicyPane.build(core)),
-                    new Tab("Audit", AuditPane.build(core)));
+                    new Tab("Audit", AuditPane.build(core)),
+                    new Tab("Settings", SettingsPane.build(core)));
             t.getSelectionModel().select(1);
         });
 

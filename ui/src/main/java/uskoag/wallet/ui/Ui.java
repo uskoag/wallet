@@ -58,4 +58,33 @@ public final class Ui {
         stage.toFront();
         stage.requestFocus();
     }
+
+    /**
+     * Puts the window in front and the caret in the box, retrying for a moment.
+     *
+     * <p>Windows does not reliably hand the foreground to a window raised by a background process, and a
+     * focus request that arrives before the stage is actually on screen does nothing at all — silently.
+     * The result was a passphrase box you had to find and click before you could type into it, which is
+     * mouse work added to the one dialog that appears most often. Pulsing the request over the first
+     * half-second covers the cases where the first attempt lands too early or is refused outright.
+     *
+     * <p>Toggling always-on-top off and on again is part of it: on Windows that is what makes the shell
+     * re-evaluate which window should be active.
+     */
+    public static void grabFocus(Stage stage, javafx.scene.Node target) {
+        toFront(stage);
+        var pulses = new java.util.concurrent.atomic.AtomicInteger(5);
+        var timer = new javafx.animation.Timeline(new javafx.animation.KeyFrame(
+                javafx.util.Duration.millis(120), e -> {
+            if (!stage.isShowing()) return;
+            stage.setAlwaysOnTop(false);
+            stage.setAlwaysOnTop(true);
+            stage.toFront();
+            stage.requestFocus();
+            if (target != null && !target.isFocused()) target.requestFocus();
+        }));
+        timer.setCycleCount(pulses.get());
+        timer.play();
+        stage.setOnHidden(e -> timer.stop());
+    }
 }

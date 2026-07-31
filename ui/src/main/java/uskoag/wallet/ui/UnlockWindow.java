@@ -25,6 +25,13 @@ import static luvjfx.Fx.vbox;
  */
 public final class UnlockWindow {
 
+    /** Seconds of no typing before an unattended passphrase box gives up and hides itself. */
+    private static final int IDLE_SECONDS = 120;
+
+    /**
+     * The one open prompt, so several tools arriving at a locked wallet at once get a single box rather
+     * than one each stacked on top of each other. Only ever touched on the FX thread.
+     */
     private static Stage open;
 
     private UnlockWindow() {
@@ -105,25 +112,58 @@ public final class UnlockWindow {
 
         body.nodes(heading, blurb, label(creating ? "Passphrase" : ""), first);
         if (creating) body.nodes(label("Passphrase again"), confirm);
+        var closing = label("");
         body.nodes(status.wrapText(true).style("-fx-text-fill: #b71c1c;"),
                 hbox().spacing(8).nodes(go, creating ? quit : forgot, creating ? label("") : quit),
                 label(creating
-                        ? "Enter moves to the second box, then creates   |   Esc quits"
-                        : "Enter unlocks   |   Esc quits   |   nothing is written to disk in clear")
-                        .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
+                        ? "Enter moves to the second box, then creates   |   Esc hides this   |   Quit stops the wallet"
+                        : "Enter unlocks   |   Esc hides this   |   Quit stops the wallet"
+                          + "   |   nothing is written to disk in clear")
+                        .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
+                closing.style("-fx-font-size: 10px; -fx-text-fill: #999;"));
 
-        var sc = scene(body.style(Ui.INK), 520, creating ? 340 : 290);
-        Ui.escCloses(sc, stage, () -> System.exit(0));
+        var sc = scene(body.style(Ui.INK), 520, creating ? 380 : 330);
+        // Esc hides, it does not quit. The wallet is a service now: every tool on this machine reaches
+        // Google through it, so dismissing a dialog must not take the service down with it. Quit still
+        // does exactly what it says.
+        Ui.escCloses(sc, stage, () -> open = null);
         stage.setScene(sc);
-        // Focus has to be asked for after the stage is actually on screen, and again on the next pulse:
-        // a window raised by a background process does not reliably get the foreground on Windows, and
-        // requesting focus before that lands silently does nothing.
-        stage.setOnShown(e -> Platform.runLater(() -> {
-            stage.toFront();
-            stage.requestFocus();
-            first.node.requestFocus();
+        stage.setOnShown(e -> Platform.runLater(() -> Ui.grabFocus(stage, first.node)));
+        idleClose(stage, closing, first, confirm);
+        Ui.grabFocus(stage, first.node);
+    }
+
+    /**
+     * Closes an untouched passphrase box after a while, counting down quietly first.
+     *
+     * <p>Idle rather than absolute: the timer resets on every keystroke, because a box that vanishes
+     * mid-passphrase is worse than one that lingers. What is being avoided is the other case — an unlock
+     * prompt left open and unattended on a machine that every tool here reaches Google through.
+     *
+     * <p>Closing only hides the window. Nothing is waiting on it: a client that found the wallet locked
+     * was told to retry, so there is no request to fail.
+     */
+    private static void idleClose(Stage stage, luvjfx.FxLabel closing,
+                                 luvjfx.FxPasswordField first, luvjfx.FxPasswordField confirm) {
+        var left = new java.util.concurrent.atomic.AtomicInteger(IDLE_SECONDS);
+        var clock = new javafx.animation.Timeline(new javafx.animation.KeyFrame(
+                javafx.util.Duration.seconds(1), e -> {
+            var n = left.decrementAndGet();
+            if (n <= 0) {
+                stage.close();
+                open = null;
+                return;
+            }
+            closing.text("closes in " + n / 60 + ":" + String.format("%02d", n % 60)
+                    + " if untouched   ·   reopen from the tray");
         }));
-        Ui.toFront(stage);
+        clock.setCycleCount(javafx.animation.Animation.INDEFINITE);
+        clock.play();
+
+        Runnable reset = () -> left.set(IDLE_SECONDS);
+        first.node.setOnKeyTyped(e -> reset.run());
+        confirm.node.setOnKeyTyped(e -> reset.run());
+        stage.setOnHidden(e -> clock.stop());
     }
 
     private static void fail(luvjfx.FxLabel status, luvjfx.FxPasswordField first, luvjfx.FxPasswordField confirm,

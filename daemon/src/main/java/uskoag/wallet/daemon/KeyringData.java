@@ -26,7 +26,7 @@ public final class KeyringData {
      * Bumped whenever the stored shape changes. {@link Keyring#unlock} refuses a mismatch rather than
      * letting Gson parse an older shape into this one and leave the moved fields unset.
      */
-    public static final String VERSION = "4";
+    public static final String VERSION = "5";
 
     String version = VERSION;
     long createdAt = System.currentTimeMillis();
@@ -34,6 +34,18 @@ public final class KeyringData {
     List<OrgRecord> orgs = new ArrayList<>();
     List<CredentialRecord> credentials = new ArrayList<>();
     List<PolicyRule> rules = new ArrayList<>();
+
+    /**
+     * Settings live in here rather than in a file beside the keyring, because a plain file is one any
+     * process running as this user can edit — and a single line of it turns the policy layer off. See
+     * {@link WalletSettings}.
+     */
+    WalletSettings settings = new WalletSettings();
+
+    public WalletSettings settings() {
+        if (settings == null) settings = new WalletSettings();
+        return settings;
+    }
 
     public List<OrgRecord> orgs() {
         if (orgs == null) orgs = new ArrayList<>();
