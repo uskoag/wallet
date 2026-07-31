@@ -49,7 +49,8 @@ public final class Verbs {
             case "import" -> accounts.importOld(Json.to(body, Asks.Import.class));
             case "export" -> accounts.export(Json.to(body, Asks.Export.class));
             case "forget" -> accounts.forget(Json.to(body, Asks.Forget.class));
-            case "policy.list", "policy.check", "policy.allow", "policy.revoke", "policy.clear" ->
+            case "policy.list", "policy.check", "policy.allow", "policy.extend",
+                 "policy.revoke", "policy.clear" ->
                     policy.dispatch(verb, body);
             case "token.list", "token.remove", "token.reorder", "token.unused", "token.removeUnused" ->
                     tokens.dispatch(verb, body);

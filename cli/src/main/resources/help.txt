@@ -40,6 +40,10 @@ they then make is classified and policed where the request actually is.
   policy allow --api sheets --resource <id> --tier write [--minutes 60] [--ops 50] [--match exact]
                                     ask for a standing rule; raises the same dialog a first touch
                                     would have raised, because a process must not grant itself one
+  policy extend <ruleId> --by 1w    push a rule's expiry out and refresh its operation count. Added
+                                    to the existing expiry, so extending a rule with a day left by a
+                                    week gives eight days. Raises the dialog for the same reason
+                                    allow does. Spans: 45m 12h 10d 3w 6mo 2y forever
   policy revoke <ruleId>            drop one rule
   policy clear                      drop them all
 

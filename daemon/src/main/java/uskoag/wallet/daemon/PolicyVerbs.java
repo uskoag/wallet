@@ -8,6 +8,7 @@ import uskoag.wallet.wire.Match;
 import uskoag.wallet.wire.PolicyReply;
 import uskoag.wallet.wire.PolicyRequest;
 import uskoag.wallet.wire.ResourceRef;
+import uskoag.wallet.wire.Span;
 
 import java.io.IOException;
 
@@ -32,6 +33,7 @@ public final class PolicyVerbs {
             case "policy.list" -> Json.of(PolicyReply.listing(core.policy.rules()));
             case "policy.check" -> check(Json.to(body, PolicyRequest.class));
             case "policy.allow" -> allow(Json.to(body, PolicyRequest.class));
+            case "policy.extend" -> extend(Json.to(body, PolicyRequest.class));
             case "policy.revoke" -> revoke(body);
             case "policy.clear" -> Json.of(PolicyReply.of(true, "cleared", core.policy.clear() + " rule(s) removed"));
             default -> Json.of(PolicyReply.of(false, "unknown", verb));
@@ -84,6 +86,34 @@ public final class PolicyVerbs {
                 r.match() == null ? Match.EXACT : r.match(), r.reason());
         var rule = core.policy.remember(r.profile(), account, null, res, r.tier(), wanted, r.reason());
         return Json.of(PolicyReply.of(true, "allowed", rule.describe()));
+    }
+
+    /**
+     * Extending is granting, so this asks. Only the wallet's own window may extend without a dialog,
+     * because there the click is itself the consent; a request arriving over the socket is a process
+     * asking on its own behalf and gets the same treatment as a first touch.
+     */
+    private String extend(PolicyRequest r) throws IOException {
+        var rule = core.policy.rules().stream()
+                .filter(x -> r.resource() != null && r.resource().equals(x.id)).findFirst().orElse(null);
+        if (rule == null) return Json.of(PolicyReply.of(false, "not-found", String.valueOf(r.resource())));
+        if (!core.gateway().interactive()) {
+            return Json.of(PolicyReply.of(false, "no-display", "cannot ask — the wallet has no display"));
+        }
+
+        var res = new ResourceRef(rule.api, rule.resource, rule.label);
+        var answer = core.gateway().ask(new ApprovalAsk(
+                "cli", "CLI ", rule.profile, "uskoag-walletcli", rule.account, rule.api,
+                "extend an existing " + rule.tier + " permission by " + Span.describe(r.minutes()),
+                res, "standing rule " + rule.id + ", " + rule.until(), rule.tier, 1,
+                "wallet policy extend", ProcessHandle.current().pid(), "cli"));
+        if (!answer.allowed()) return Json.of(PolicyReply.of(false, "denied", "you declined"));
+
+        try {
+            return Json.of(PolicyReply.of(true, "extended", core.policy.extend(rule.id, r.minutes())));
+        } catch (IOException e) {
+            return Json.of(PolicyReply.of(false, "refused", e.getMessage()));
+        }
     }
 
     private String revoke(String body) throws IOException {

@@ -4,6 +4,7 @@ import uskoag.wallet.wire.ApprovalAnswer;
 import uskoag.wallet.wire.Match;
 import uskoag.wallet.wire.PolicyRule;
 import uskoag.wallet.wire.ResourceRef;
+import uskoag.wallet.wire.Span;
 import uskoag.wallet.wire.Tier;
 
 import java.io.IOException;
@@ -98,6 +99,38 @@ public final class PolicyEngine {
 
     public synchronized List<PolicyRule> rules() {
         return List.copyOf(keyring.data().rules());
+    }
+
+    /**
+     * Pushes a rule's expiry out, and refreshes its operation count with it.
+     *
+     * <p>Added to the existing expiry rather than measured from now, so "extend by a week" on a rule
+     * with a day left gives eight days and not seven — the alternative silently shortens a rule
+     * whenever someone tops it up early.
+     *
+     * <p>The count is reset alongside the clock because an extension that left an exhausted budget in
+     * place would hand back a rule that still refuses everything, which is not what anybody means by
+     * extending it. That does mean extending is a real grant, which is why the CLI route to this raises
+     * the approval dialog and only the wallet's own window calls it directly.
+     *
+     * @param minutes 0 to remove the expiry altogether
+     * @throws IOException when there is nothing sensible to do: no such rule, or a rule that already has
+     *                     no expiry, where adding a span would shorten it instead of extending it
+     */
+    public synchronized String extend(String id, int minutes) throws IOException {
+        var rule = keyring.data().rules().stream()
+                .filter(r -> id != null && id.equals(r.id)).findFirst()
+                .orElseThrow(() -> new IOException("no rule with id " + id));
+
+        if (minutes > 0 && rule.expiresAt == 0) {
+            throw new IOException("rule " + id + " already has no expiry — adding " + Span.describe(minutes)
+                    + " would shorten it. Revoke it instead, or re-approve with a bounded span.");
+        }
+        rule.expiresAt = minutes <= 0 ? 0
+                : Math.max(System.currentTimeMillis(), rule.expiresAt) + minutes * 60_000L;
+        rule.opsUsed = 0;
+        keyring.save();
+        return rule.describe();
     }
 
     public synchronized boolean revoke(String id) throws IOException {
