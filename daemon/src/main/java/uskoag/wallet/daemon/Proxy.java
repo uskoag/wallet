@@ -68,6 +68,7 @@ public final class Proxy {
     }
 
     private void handle(HttpExchange x) {
+        var arrivedAt = System.nanoTime();
         try (x) {
             var grant = core.grants.get(first(x, GrantInitializer.HEADER));
             if (grant == null) {
@@ -146,7 +147,23 @@ public final class Proxy {
             }
 
             chosen.used();
+            // Timed either side of the upstream leg so the wallet's own cost is a measured number
+            // rather than an argument. Everything before this point — classification, token choice,
+            // the policy question, naming the resource — is what the wallet adds; the relay itself is
+            // Google's round trip and the bytes, which would be paid on any route. Subtracting the one
+            // from the other answers "how much does brokering cost?" without needing a direct-to-Google
+            // baseline, which these tools can no longer produce since the app-key paths were removed.
+            var upstreamStart = System.nanoTime();
             Forward.relay(x, api, path, query, body, bearer, core.proxyPortValue());
+            if (TRACE) {
+                var now = System.nanoTime();
+                var upstreamMs = (now - upstreamStart) / 1_000_000;
+                var walletMs = (upstreamStart - arrivedAt) / 1_000_000;
+                Log.info("timing " + x.getRequestMethod() + " /" + path
+                        + "  wallet=" + walletMs + "ms  upstream=" + upstreamMs + "ms  overhead="
+                        + (upstreamMs + walletMs == 0 ? "0"
+                           : String.format("%.2f", 100.0 * walletMs / (walletMs + upstreamMs))) + "%");
+            }
         } catch (Throwable t) {
             // Throwable, not Exception, for the same reason as ControlServer.handle: an Error escaping
             // here closes the exchange unanswered and logs nothing, so the caller sees "received no
