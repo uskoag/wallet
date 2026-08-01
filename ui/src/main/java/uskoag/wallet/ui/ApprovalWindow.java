@@ -61,6 +61,15 @@ public final class ApprovalWindow {
     private static final String RED = "#b71c1c", AMBER = "#e65100", GREEN = "#1b5e20", WARN = "#8d6e00";
 
     /**
+     * How long the window ignores the keyboard after appearing.
+     *
+     * <p>Long enough to swallow the rest of a word somebody was typing when it took their focus, short
+     * enough that a person who is waiting for it does not notice. Nobody reads a permission question
+     * and decides inside a second, so nothing legitimate is lost.
+     */
+    private static final long SETTLE_MS = 1200;
+
+    /**
      * Deliberately under the client's 300s read timeout in {@code GrantInitializer}. The wallet has to
      * give up first, or the call dies while this window is still open and a later click grants a rule for
      * a request that no longer exists.
@@ -139,6 +148,12 @@ public final class ApprovalWindow {
             stage.close();
         };
 
+        // Re-armable, because there are two moments when keys arrive that were not aimed at a choice:
+        // when the window first appears over whatever someone was doing, and immediately after the
+        // passphrase is submitted, when focus moves onto the span buttons and a repeated or held Enter
+        // would land on one.
+        var settleUntil = new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis() + SETTLE_MS);
+
         var once = button("Once");
         once.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.once())));
         choices.add(once);
@@ -153,11 +168,29 @@ public final class ApprovalWindow {
             b.attr(x -> x.setOnAction(e -> finish.accept(
                     grant(span, danger, settings.destructiveOps, breadth(wide)))));
             choices.add(b);
-            // Enter lands on the widest span this tier permits, which is bounded by construction — except
-            // on the irreversible tier, where it lands on "Once" and a longer grant has to be aimed at.
             if (!danger) defaultChoice = b;
         }
-        defaultChoice.defaultButton(true);
+
+        // NOTHING that grants is a default button, and nothing that grants takes initial focus.
+        //
+        // This used to read `defaultChoice.defaultButton(true)`, where defaultChoice was the *widest*
+        // span the tier allowed. A JavaFX default button fires on ENTER from anywhere in the scene
+        // whatever holds focus, and a focused Button fires on SPACE. The window also raises itself
+        // always-on-top and pulls focus. So a dialog appearing while someone was typing prose took the
+        // next space or Enter of that sentence and turned it into the largest standing permission on
+        // offer — a week for READ, a day for MUTATE.
+        //
+        // That is not hypothetical: it happened, and it granted a seven-day read on a document nobody
+        // had been asked about in any way the person could perceive. He reported it as "the popup came
+        // and it just selected something ... i have no clue".
+        //
+        // The irreversible tier was never exposed, because its buttons stay disabled until the
+        // passphrase verifies. Everything below it was wide open.
+        //
+        // Approval is now something aimed at: Tab to a span, then press it. That still costs no chord,
+        // which matters here — see the hand-pain note in the global instructions — it just cannot be
+        // produced by ordinary typing landing on a window that stole focus a moment earlier.
+        defaultChoice.defaultButton(false);
 
         var spans = flowPane().attr(p -> {
             p.setHgap(6);
@@ -194,6 +227,7 @@ public final class ApprovalWindow {
                     for (var c : choices) ((Button) c.node).setDisable(false);
                     ((TextField) custom.node).setDisable(false);
                     ((javafx.scene.control.CheckBox) wide.node).setDisable(false);
+                    settleUntil.set(System.currentTimeMillis() + SETTLE_MS);
                     ((Button) choices.getFirst().node).requestFocus();
                 } finally {
                     Arrays.fill(typed, '\0');
@@ -291,13 +325,29 @@ public final class ApprovalWindow {
         // Tall enough for everything, and it must stay that way: this window has no scroll bar, so
         // anything that does not fit is not merely cramped, it is invisible and silently unusable.
         var sc = scene(root, 660, locked ? 810 : 700);
+
+        // Keystrokes already in flight when the window appeared are not answers to a question nobody
+        // had read yet. This window raises itself over whatever someone is doing, so the keys arriving
+        // in the first moments belong to the sentence they were typing, not to the dialog — and the
+        // whole value of an approval is that it was a decision. A filter, so it runs before any button
+        // sees the event; ESC excepted, because refusing early is always safe and a run that is denied
+        // pauses cleanly and can be re-approved.
+        sc.addEventFilter(javafx.scene.input.KeyEvent.ANY, e -> {
+            if (e.getCode() == KeyCode.ESCAPE) return;
+            if (System.currentTimeMillis() < settleUntil.get()) e.consume();
+        });
         sc.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE) finish.accept(ApprovalAnswer.deny());
         });
         stage.setOnCloseRequest(e -> answer.accept(ApprovalAnswer.deny()));
         stage.setScene(sc);
         Ui.toFront(stage);
-        (locked ? phrase.node : defaultChoice.node).requestFocus();
+        // Focus goes to the passphrase box when there is one — he asked for that, and a stray key there
+        // is a character in a field, which is harmless. Otherwise it goes to DENY. Focus has to land
+        // somewhere for keyboard use, and the only safe somewhere is the choice that costs nothing to
+        // get wrong: an accidental refusal pauses a run and says how to resume, an accidental grant is
+        // a standing permission nobody knows exists.
+        (locked ? phrase.node : deny.node).requestFocus();
         countdown(stage, closing);
         return stage;
     }
