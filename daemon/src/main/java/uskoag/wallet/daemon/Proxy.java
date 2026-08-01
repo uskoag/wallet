@@ -48,6 +48,13 @@ public final class Proxy {
     public int start() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 64);
         server.createContext("/g/", this::handle);
+        // Media uploads never arrive under /g/. The generated Google clients build them as
+        // "/upload/" + SERVICE_PATH + REST_PATH — an absolute path, which GenericUrl resolves against
+        // the host and not the base, so the proxy's own /g/<alias>/ prefix is discarded before the
+        // request is ever sent. Without this context the JDK server answers "No context found for
+        // request" and every upload through the wallet fails; with it, the alias comes from the grant
+        // instead of the path. Found by trying to upload a file, which nothing had done before.
+        server.createContext("/upload/", this::handle);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
         var port = server.getAddress().getPort();
@@ -81,14 +88,26 @@ public final class Proxy {
                         + " expired. Unlock it and run the same command again.");
                 return;
             }
-            var raw = x.getRequestURI().getRawPath().substring("/g/".length());
-            var slash = raw.indexOf('/');
-            if (slash <= 0) {
-                fail(x, 400, "malformed proxy path");
-                return;
+            var rawPath = x.getRequestURI().getRawPath();
+            GApi api;
+            String path;
+            if (rawPath.startsWith("/upload/")) {
+                // The alias cannot come from the path here, so it comes from the grant — which is the
+                // stronger source anyway: a grant is issued for exactly one API, so an upload can only
+                // ever reach the service its handle was minted for. The path is passed upstream
+                // unchanged, because Google's own upload endpoint is /upload/<service path>.
+                api = GApi.of(grant.api());
+                path = rawPath.substring(1);
+            } else {
+                var raw = rawPath.substring("/g/".length());
+                var slash = raw.indexOf('/');
+                if (slash <= 0) {
+                    fail(x, 400, "malformed proxy path");
+                    return;
+                }
+                api = GApi.of(raw.substring(0, slash));
+                path = raw.substring(slash + 1);
             }
-            var api = GApi.of(raw.substring(0, slash));
-            var path = raw.substring(slash + 1);
             var query = x.getRequestURI().getRawQuery();
 
             var body = maybeRead(x);
