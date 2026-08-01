@@ -48,13 +48,30 @@ import static luvjfx.Fx.vbox;
  * <p>Colour tracks elevation, since that is judged before any word is read: green to read, amber to
  * change, red for anything that cannot be undone.
  *
- * <p>Each span is its own button, so a decision is one click rather than pick-then-confirm. There are
- * deliberately no keyboard shortcuts on those buttons: a single keypress that grants a month of access is
- * too cheap for what it does, and cheap is how a control becomes a reflex. Tab and Enter still work,
- * which requires having looked at where the focus is.
+ * <p><b>Every answer is one function key, pressed twice.</b> F2 F2 refuses, F4 F4 grants once, F6/F7/F8
+ * grant a span. Nothing on this window is focusable and nothing is a default button, so Enter, Space and
+ * Tab do nothing at all; the mouse still works for anyone who prefers it.
+ *
+ * <p>The two halves solve two different problems and neither is sufficient alone. <b>Function keys</b>
+ * are keys that composing text never emits, so a window that raised itself over someone mid-sentence
+ * cannot be answered by the sentence — which is precisely what happened before this: the widest span on
+ * offer was the scene's default button and also held focus, so the next Enter or space of a paragraph
+ * being typed granted a seven-day permission, reported as "the popup came and it just selected something
+ * ... i have no clue". <b>Pressing twice</b> then covers the remaining case, a stray function key, and
+ * carries a minimum gap so a held key cannot repeat its way through both presses, plus a short expiry so
+ * an old arm cannot be completed minutes later. A first press says on screen what a second will do.
+ *
+ * <p>Every key that is <em>not</em> a function key goes into the confirmation code, which is the only
+ * thing ordinary typing can reach and which grants nothing by itself. It exists for the breadth
+ * checkbox: that is the one answer without a bound, since every other choice is limited by a span and a
+ * tier ceiling while breadth means "and everything else this run touches". Four characters, case
+ * insensitive, different every time and belonging to this request — so typing it is evidence the window
+ * was read. Friction proportional to blast radius.
  *
  * <p>The irreversible tier is different in three ways, all of them because it cannot be undone: the
- * passphrase is asked for again, the spans stop at one day, and Enter lands on "Once".
+ * passphrase is asked for again, the spans stop at one day, and no code is asked for — the passphrase
+ * already stands in front of everything, and demanding two proofs of one intent is how a control gets
+ * resented and worked around.
  */
 public final class ApprovalWindow {
 
@@ -68,6 +85,18 @@ public final class ApprovalWindow {
      * and decides inside a second, so nothing legitimate is lost.
      */
     private static final long SETTLE_MS = 1200;
+
+    /**
+     * The shortest gap that counts as two deliberate presses rather than one.
+     *
+     * <p>Without a floor, "press it twice" is satisfied by holding the key down: the OS repeats it, and
+     * a held key is the single most likely thing to arrive from someone who was typing. With a floor,
+     * repeat cannot arm and confirm — the second event has to be a separate physical press.
+     */
+    private static final long REARM_MIN_MS = 150;
+
+    /** How long an armed choice waits before forgetting itself, so an old arm cannot be completed later. */
+    private static final long ARM_WINDOW_MS = 3000;
 
     /**
      * Deliberately under the client's 300s read timeout in {@code GrantInitializer}. The wallet has to
@@ -115,7 +144,7 @@ public final class ApprovalWindow {
         var cap = ask.tier().maxMinutes;
         var locked = danger && settings.destructiveNeedsPassphrase;
 
-        var deny = button("Deny  (Esc)").cancelButton(true);
+        var deny = button("F2 · Deny");
         var custom = textField();
         var phrase = passwordField();
         var closing = label("");
@@ -143,6 +172,27 @@ public final class ApprovalWindow {
         var wide = checkBox("Apply to everything this run touches, not just this one");
         ((javafx.scene.control.CheckBox) wide.node).setSelected(false);
 
+        /*
+         * Breadth is the one answer that costs more than a keystroke, because it is the one answer that
+         * is open-ended: every other choice is bounded by a span and a tier ceiling, while this converts
+         * a single question into "and everything else this run touches". Friction proportional to blast
+         * radius.
+         *
+         * What it costs is typing the code already on screen — four characters, case-insensitive.
+         * Cheap, and it cannot be produced by not-reading: the code is different every time and belongs
+         * to this request, so typing it is evidence that this window was looked at. It is also where
+         * every non-function key goes, which is what makes the routing safe: the keys prose is made of
+         * can only ever reach a box that grants nothing on its own.
+         *
+         * On the irreversible tier the passphrase already stands in front of all of this, and asking for
+         * two proofs of the same intent is how a control gets resented and worked around. So there the
+         * code is not asked for at all.
+         */
+        var wanted = locked || ask.correlationCode() == null ? null
+                : ask.correlationCode().trim().toUpperCase(java.util.Locale.ROOT);
+        var codeEntry = label("");
+        var codeBuf = new StringBuilder();
+
         Consumer<ApprovalAnswer> finish = a -> {
             answer.accept(a);
             stage.close();
@@ -154,43 +204,64 @@ public final class ApprovalWindow {
         // would land on one.
         var settleUntil = new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis() + SETTLE_MS);
 
-        var once = button("Once");
+        // Every answer is one function key pressed twice. The keys are what makes it safe and the
+        // doubling is what makes it deliberate, and they solve different halves of the same problem:
+        // an F-key is a key that composing text never emits, so nothing typed at a window that stole
+        // focus can reach a choice at all; pressing it twice means even a stray F-key is not an answer.
+        // Neither grant nor deny is reachable by accident, and both cost one key.
+        //
+        // Deliberately no chord anywhere here — see the hand-pain note in the global instructions.
+        var actions = new java.util.LinkedHashMap<KeyCode, Runnable>();
+
+        var once = button("F4 · Once");
         once.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.once())));
         choices.add(once);
+        actions.put(KeyCode.F4, () -> finish.accept(ApprovalAnswer.once()));
 
-        luvjfx.FxButton defaultChoice = once;
+        var spanKeys = new KeyCode[]{KeyCode.F6, KeyCode.F7, KeyCode.F8, KeyCode.F9, KeyCode.F10};
+        int k = 0;
         for (var span : Span.values()) {
             // Spans past this tier's ceiling are not offered at all, rather than offered and then silently
             // clamped: a button that does not do what it says is its own defect. "Forever" is therefore
             // never on screen, for any tier.
             if (!ask.tier().allows(span)) continue;
-            var b = button(span.label);
-            b.attr(x -> x.setOnAction(e -> finish.accept(
-                    grant(span, danger, settings.destructiveOps, breadth(wide)))));
+            var key = k < spanKeys.length ? spanKeys[k++] : null;
+            var b = button((key == null ? "" : key.getName() + " · ") + span.label);
+            Runnable act = () -> finish.accept(
+                    grant(span, danger, settings.destructiveOps, breadth(wide)));
+            b.attr(x -> x.setOnAction(e -> act.run()));
             choices.add(b);
-            if (!danger) defaultChoice = b;
+            if (key != null) actions.put(key, act);
         }
 
-        // NOTHING that grants is a default button, and nothing that grants takes initial focus.
+        // No button here is focusable, and none is a default button.
         //
-        // This used to read `defaultChoice.defaultButton(true)`, where defaultChoice was the *widest*
-        // span the tier allowed. A JavaFX default button fires on ENTER from anywhere in the scene
-        // whatever holds focus, and a focused Button fires on SPACE. The window also raises itself
-        // always-on-top and pulls focus. So a dialog appearing while someone was typing prose took the
-        // next space or Enter of that sentence and turned it into the largest standing permission on
-        // offer — a week for READ, a day for MUTATE.
+        // This used to set the *widest* span the tier allowed as the scene's default button. A JavaFX
+        // default button fires on ENTER from anywhere in the scene whatever holds focus, and a focused
+        // Button fires on SPACE. The window also raises itself always-on-top and pulls focus. So a
+        // dialog appearing while someone was typing prose took the next space or Enter of that sentence
+        // and turned it into the largest standing permission on offer — a week for READ, a day for
+        // MUTATE. It happened, and it granted a seven-day read on a document nobody had been asked
+        // about in any way the person could perceive: "the popup came and it just selected something
+        // ... i have no clue".
         //
-        // That is not hypothetical: it happened, and it granted a seven-day read on a document nobody
-        // had been asked about in any way the person could perceive. He reported it as "the popup came
-        // and it just selected something ... i have no clue".
+        // Managing focus was not enough, because it only moves which key is dangerous. Taking the
+        // buttons out of the focus chain altogether removes the whole class: with nothing focusable
+        // there is no key ENTER or SPACE can reach, whatever a person is in the middle of typing. The
+        // buttons stay clickable, and the keyboard route is the F-keys above.
+        for (var c : choices) ((Button) c.node).setFocusTraversable(false);
+        ((Button) deny.node).setFocusTraversable(false);
+        deny.cancelButton(false);
+        ((javafx.scene.control.CheckBox) wide.node).setFocusTraversable(false);
+
+        // Where a code is asked for, the checkbox shows breadth rather than setting it: typing the code
+        // is the only way to turn it on. Left clickable it would be a one-click route around the very
+        // friction it was given, and a control with a documented cost and an undocumented free path is
+        // worse than one with no cost at all, because only the second is honest about what it is.
         //
-        // The irreversible tier was never exposed, because its buttons stay disabled until the
-        // passphrase verifies. Everything below it was wide open.
-        //
-        // Approval is now something aimed at: Tab to a span, then press it. That still costs no chord,
-        // which matters here — see the hand-pain note in the global instructions — it just cannot be
-        // produced by ordinary typing landing on a window that stole focus a moment earlier.
-        defaultChoice.defaultButton(false);
+        // On the irreversible tier there is no code — the passphrase already stands in front of
+        // everything — so there the box stays a real checkbox, enabled once the passphrase verifies.
+        if (wanted != null) ((javafx.scene.control.CheckBox) wide.node).setMouseTransparent(true);
 
         var spans = flowPane().attr(p -> {
             p.setHgap(6);
@@ -295,6 +366,13 @@ public final class ApprovalWindow {
                 // sat off the bottom edge and 31 approvals were answered one at a time without it ever
                 // being seen — which is the exact complaint it exists to answer.
                 wide.style("-fx-font-weight: bold;"),
+                (wanted == null
+                        ? label("Enabled by the passphrase above.")
+                                .style("-fx-font-size: 11px; -fx-text-fill: #666;")
+                        : hbox().spacing(8).nodes(
+                                label("To turn it on, type the code " + wanted + " :")
+                                        .style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                                codeEntry.style("-fx-font-family: monospace; -fx-font-size: 13px;"))),
                 label("Off: this answer covers this one item — almost always what you want. On: it covers"
                         + " everything this run touches, for one action that spans many files (a folder"
                         + " move, a bulk share, creating a batch) where the buttons below would"
@@ -332,12 +410,55 @@ public final class ApprovalWindow {
         // whole value of an approval is that it was a decision. A filter, so it runs before any button
         // sees the event; ESC excepted, because refusing early is always safe and a run that is denied
         // pauses cleanly and can be re-approved.
-        sc.addEventFilter(javafx.scene.input.KeyEvent.ANY, e -> {
-            if (e.getCode() == KeyCode.ESCAPE) return;
-            if (System.currentTimeMillis() < settleUntil.get()) e.consume();
-        });
-        sc.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE) finish.accept(ApprovalAnswer.deny());
+        actions.put(KeyCode.F2, () -> finish.accept(ApprovalAnswer.deny()));
+
+        // One filter owns the whole keyboard, so nothing downstream can act on a key we did not route.
+        //
+        // Function keys are answers, pressed twice. Everything else — the keys prose is actually made
+        // of — goes into the confirmation code, which is the only thing typing can affect and which by
+        // itself grants nothing. Enter, Space and Tab do nothing at all.
+        var armed = new java.util.concurrent.atomic.AtomicReference<KeyCode>();
+        var armedAt = new java.util.concurrent.atomic.AtomicLong();
+        sc.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            e.consume();
+            var now = System.currentTimeMillis();
+            if (now < settleUntil.get()) return;
+
+            // Esc arms a refusal rather than performing one. The universal way out of a dialog stays
+            // where everyone expects it, without being the one reflex key that can answer by itself.
+            var code = e.getCode() == KeyCode.ESCAPE ? KeyCode.F2 : e.getCode();
+            var act = actions.get(code);
+
+            if (act == null) {
+                if (wanted == null) return;
+                var t = e.getText();
+                if (e.getCode() == KeyCode.BACK_SPACE) {
+                    if (codeBuf.length() > 0) codeBuf.deleteCharAt(codeBuf.length() - 1);
+                } else if (t != null && t.length() == 1 && Character.isLetterOrDigit(t.charAt(0))) {
+                    if (codeBuf.length() < wanted.length()) codeBuf.append(t.toUpperCase(java.util.Locale.ROOT));
+                } else {
+                    return;     // Enter, Space, Tab, arrows: nothing. They are not answers to anything.
+                }
+                var match = codeBuf.toString().contentEquals(wanted);
+                ((javafx.scene.control.CheckBox) wide.node).setSelected(match);
+                codeEntry.text(codeBuf.isEmpty() ? "" : codeBuf.toString());
+                codeEntry.style("-fx-font-family: monospace; -fx-font-size: 13px; -fx-text-fill: "
+                        + (match ? GREEN : WARN) + ";");
+                return;
+            }
+            if (armed.get() == code && now - armedAt.get() >= REARM_MIN_MS
+                    && now - armedAt.get() <= ARM_WINDOW_MS) {
+                armed.set(null);
+                act.run();
+                return;
+            }
+            // Armed, not done. Said on screen, because a first press that appears to do nothing reads as
+            // a dead keyboard and gets hammered — which is the behaviour this is trying to prevent.
+            armed.set(code);
+            armedAt.set(now);
+            var what = code == KeyCode.F2 ? "Deny" : labelFor(choices, code);
+            gateNote.text("Press " + code.getName() + " again to " + what + ".");
+            gateNote.style("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: " + AMBER + ";");
         });
         stage.setOnCloseRequest(e -> answer.accept(ApprovalAnswer.deny()));
         stage.setScene(sc);
@@ -379,6 +500,16 @@ public final class ApprovalWindow {
     }
 
     /** Ticked means every resource of this api, and {@link uskoag.wallet.daemon.PolicyEngine} then ties it to the run. */
+    /** The button text for a key, so the "press again" line names the thing rather than the key. */
+    private static String labelFor(java.util.List<luvjfx.FxButton> choices, KeyCode code) {
+        var prefix = code.getName() + " · ";
+        for (var c : choices) {
+            var t = ((Button) c.node).getText();
+            if (t != null && t.startsWith(prefix)) return t.substring(prefix.length());
+        }
+        return "approve";
+    }
+
     private static Match breadth(luvjfx.FxCheckBox wide) {
         return ((javafx.scene.control.CheckBox) wide.node).isSelected() ? Match.ANY : Match.EXACT;
     }
