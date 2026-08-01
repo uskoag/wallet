@@ -50,6 +50,15 @@ public final class UnlockWindow {
 
         var first = passwordField();
         var confirm = passwordField();
+
+        // Only when a keyring is being created. Unlocking an existing one must accept anything that was
+        // ever a valid passphrase, including one set before this rule existed — Keyring.unlock tries the
+        // typed form and the normalised form, and filtering here would remove the typed form from reach.
+        if (creating) {
+            PassphraseWindow.lettersOnly(first);
+            PassphraseWindow.lettersOnly(confirm);
+        }
+
         var status = label(because == null ? "" : because);
         var go = button(creating ? "Create keyring" : "Unlock").defaultButton(true);
         var forgot = button("Forgot passphrase...");

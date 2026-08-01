@@ -59,15 +59,77 @@ public final class Keyring {
 
     /** First run: mint a fresh keyring, including the audit's own column key. */
     public synchronized void create(char[] phrase) throws IOException {
+        // Normalised here too, so a keyring is sealed under the same rule however it was created.
+        var clean = normalise(phrase);
+        if (clean.length < MIN_PASSPHRASE) {
+            Arrays.fill(clean, '\0');
+            throw new IOException("the passphrase must be at least " + MIN_PASSPHRASE + " letters."
+                    + " Letters only, and case does not matter.");
+        }
         salt = Aes.salt();
-        master = Aes.derive(phrase, salt);
-        passphrase = phrase.clone();
+        master = Aes.derive(clean, salt);
+        passphrase = clean;
         data = new KeyringData();
         data.auditKeyB64 = Base64.getEncoder().encodeToString(Aes.randomKey().getEncoded());
         save();
     }
 
+    /**
+     * Opens the keyring, accepting the passphrase as typed or folded to upper case.
+     *
+     * <p>New passphrases are letters only and case does not matter — they are normalised by
+     * {@link #normalise} before the key is derived. Existing keyrings were sealed with whatever was
+     * typed at the time, mixed case and all, and the bytes of the passphrase <em>are</em> the key: had
+     * this simply started normalising, every keyring predating the change would have stopped opening,
+     * with no diagnosis available beyond "wrong passphrase" and no way back except discarding the
+     * keyring and re-consenting every account.
+     *
+     * <p>So it tries what was typed, then the normalised form. One of them is the passphrase this
+     * keyring was actually sealed with. The cost is one extra key derivation on the path that was going
+     * to fail anyway, and it converges the moment the passphrase is next changed.
+     */
     public synchronized void unlock(char[] phrase) throws IOException {
+        try {
+            open(phrase);
+        } catch (IOException | RuntimeException asTyped) {
+            var folded = normalise(phrase);
+            if (Arrays.equals(folded, phrase)) {
+                Arrays.fill(folded, '\0');
+                throw asTyped;
+            }
+            try {
+                open(folded);
+            } catch (IOException | RuntimeException alsoFolded) {
+                throw asTyped;      // report the original failure, not the fallback's
+            } finally {
+                Arrays.fill(folded, '\0');
+            }
+        }
+    }
+
+    /**
+     * Letters only, upper case — the form a passphrase is stored under from now on.
+     *
+     * <p>Case is dropped rather than merely allowed, because "it should not matter whether I type small
+     * or capital" is only true if both derive the same key. Anything that is not a letter is dropped
+     * too, so that setting a passphrase cannot produce one that needs a chord to type. Both rules exist
+     * for the same reason: a passphrase typed several times a day by someone for whom modifier keys
+     * hurt should cost no modifier keys.
+     */
+    public static char[] normalise(char[] phrase) {
+        if (phrase == null) return new char[0];
+        var out = new StringBuilder(phrase.length);
+        for (var c : phrase) {
+            if (Character.isLetter(c)) out.append(Character.toUpperCase(c));
+        }
+        var result = new char[out.length()];
+        out.getChars(0, out.length(), result, 0);
+        // The builder held the passphrase in the clear; do not leave it for the GC to get to eventually.
+        out.setLength(0);
+        return result;
+    }
+
+    private synchronized void open(char[] phrase) throws IOException {
         var raw = Files.readAllBytes(WalletPaths.keyringFile());
         if (raw.length < HEADER || !Arrays.equals(Arrays.copyOf(raw, MAGIC.length), MAGIC)) {
             throw new IOException("not a wallet keyring: " + WalletPaths.keyringFile());
@@ -128,16 +190,29 @@ public final class Keyring {
      */
     public synchronized void changePassphrase(char[] current, char[] fresh) throws IOException {
         if (data == null) throw new IllegalStateException("unlock the wallet before changing its passphrase");
-        if (!Arrays.equals(passphrase, current)) throw new IOException("current passphrase does not match");
-        if (fresh == null || fresh.length < MIN_PASSPHRASE) {
-            throw new IOException("the new passphrase must be at least " + MIN_PASSPHRASE + " characters");
+        // The current one is checked as typed or normalised, for the same reason unlock accepts both:
+        // this keyring may predate the rule and still be sealed with mixed case.
+        if (!Arrays.equals(passphrase, current) && !Arrays.equals(passphrase, normalise(current))) {
+            throw new IOException("current passphrase does not match");
+        }
+
+        // Normalised before anything is derived from it, so what is stored is what will be typed. Doing
+        // this at the boundary rather than in the dialog means a passphrase set from the CLI obeys the
+        // same rule as one set from the window, and neither can produce a keyring the other cannot open.
+        var clean = normalise(fresh);
+        if (clean.length < MIN_PASSPHRASE) {
+            Arrays.fill(clean, '\0');
+            throw new IOException("the new passphrase must be at least " + MIN_PASSPHRASE
+                    + " letters. Letters only — digits and punctuation are ignored, and case does not"
+                    + " matter, so it can be typed without a shift key.");
         }
 
         var previous = passphrase;
         salt = Aes.salt();
-        master = Aes.derive(fresh, salt);
-        passphrase = fresh.clone();
+        master = Aes.derive(clean, salt);
+        passphrase = clean.clone();
         save();
+        Arrays.fill(clean, '\0');
         Arrays.fill(previous, '\0');
     }
 
