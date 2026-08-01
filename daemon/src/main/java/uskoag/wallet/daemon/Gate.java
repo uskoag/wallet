@@ -101,6 +101,16 @@ public final class Gate {
     private uskoag.wallet.wire.ApprovalAnswer prompt(Grant grant, Classification c, String kind) {
         if (!core.gateway().interactive()) return null;
 
+        // Development mode, and it answers before the queue rather than inside it: a debug run is
+        // unattended by definition, so making it wait its turn behind a semaphore only slows it down.
+        // Always `once` — a debug approval never becomes a standing rule, so nothing it did survives
+        // the process. See Debug for why the window is bounded the way it is.
+        if (Debug.autoApproves(c.tier())) {
+            Log.warn("DEBUG auto-approved " + c.tier() + " " + c.operation() + " on "
+                    + c.resource().display());
+            return uskoag.wallet.wire.ApprovalAnswer.once();
+        }
+
         boolean mine;
         try {
             mine = oneAtATime.tryAcquire(QUEUE_WAIT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
@@ -151,7 +161,7 @@ public final class Gate {
     private void record(Grant grant, Classification c, Verdict verdict) {
         if (c.tier() == Tier.READ && c.resource().isBrowse() && verdict == Verdict.ALLOW) return;
         core.audit.record(new AuditEvent(System.currentTimeMillis(), grant.profile(), grant.account(),
-                c.resource().api(), c.operation(), c.tier(), verdict, c.itemCount(),
+                c.resource().api(), Debug.tag(c.operation()), c.tier(), verdict, c.itemCount(),
                 grant.session(), grant.pid(), c.resource().display(), grant.peerCommand()));
     }
 }

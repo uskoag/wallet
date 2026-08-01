@@ -141,6 +141,8 @@ public final class WalletCore {
         var notes = new ArrayList<String>();
         if (!Dpapi.available()) notes.add("DPAPI unavailable, keyring is passphrase-only: " + Dpapi.unavailableReason());
         if (!gateway.interactive()) notes.add("no display, approvals will be denied rather than asked");
+        var debug = Debug.note();
+        if (debug != null) notes.add(debug);
         return new WalletStatus("1.0", keyring.unlocked(), keyring.exists(),
                 keyring.unlocked() ? keyring.accountNames().size() : -1,
                 0, proxyPort, notes);

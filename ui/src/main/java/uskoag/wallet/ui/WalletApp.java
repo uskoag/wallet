@@ -4,6 +4,7 @@ import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
 import uskoag.wallet.daemon.AlreadyRunning;
+import uskoag.wallet.daemon.Debug;
 import uskoag.wallet.daemon.Log;
 import uskoag.wallet.daemon.Wallet;
 
@@ -43,6 +44,24 @@ public final class WalletApp extends Application {
         // passphrase is not asked for until something actually needs it, so starting the wallet costs
         // nothing. Both windows are one tray click, or one more launch of the exe, away.
         var args = getParameters().getRaw();
+
+        // Development mode, before anything else can put a dialog on screen. Startup only: it
+        // deliberately does not re-unlock later, because a wallet that unlocks itself on demand has no
+        // lock, and because locking mid-run is one of the behaviours that needs testing.
+        var debugPass = Debug.arm(args.contains("--debug"));
+        if (debugPass != null) {
+            try {
+                wallet.core.unlock(debugPass);
+                Tray.note(uskoag.wallet.wire.Brand.NAME, "DEBUG MODE — unlocked from the environment,"
+                        + " approvals answered without asking. Not for real work.");
+            } catch (Exception e) {
+                Log.error("--debug could not unlock; check " + Debug.PASSPHRASE_VAR, e);
+            } finally {
+                java.util.Arrays.fill(debugPass, '\0');
+            }
+            return;
+        }
+
         if (args.contains("--show")) {
             UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), null);
         } else if (args.contains("--unlock")) {

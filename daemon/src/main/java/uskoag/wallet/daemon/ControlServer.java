@@ -45,11 +45,31 @@ public final class ControlServer {
         return port;
     }
 
+    /**
+     * Removes the handshake only if this process is the one that wrote it.
+     *
+     * <p>It used to delete unconditionally, and that was a live cross-process bug rather than a
+     * theoretical one. A second {@code uskoag-wallet.exe} launch loses the single-instance claim,
+     * exits — and JavaFX runs {@code Application.stop()} on the way out, which reached here and
+     * deleted the <em>running</em> wallet's handshake file. The winner stayed alive, unlocked and
+     * serving, while every tool on the machine reported the wallet as not running, because the
+     * handshake is the only way a client finds it. Nothing was logged, because from each process's
+     * own point of view nothing had gone wrong.
+     *
+     * <p>{@link SingleInstance#release()} had the guard already ({@code lock != null}); this did not.
+     */
     public void stop() {
-        if (server != null) server.stop(0);
+        if (server == null) return;
+        server.stop(0);
+        server = null;
         try {
-            Files.deleteIfExists(WalletPaths.handshakeFile());
-        } catch (IOException ignored) {
+            var file = WalletPaths.handshakeFile();
+            var mine = Files.exists(file)
+                    && Json.to(Files.readString(file, StandardCharsets.UTF_8), WalletHandshake.class)
+                    .pid() == ProcessHandle.current().pid();
+            if (mine) Files.deleteIfExists(file);
+        } catch (Exception ignored) {
+            // An unreadable or half-written handshake is not ours to delete either.
         }
     }
 
