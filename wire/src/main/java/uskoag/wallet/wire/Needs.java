@@ -33,7 +33,22 @@ public final class Needs {
                     : List.of("https://www.googleapis.com/auth/gmail.modify");
             case "drive" -> switch (tier) {
                 case READ -> List.of("https://www.googleapis.com/auth/drive.readonly");
-                case MUTATE -> List.of("https://www.googleapis.com/auth/drive.file");
+                // Was drive.file, and that was wrong in a way only a real call showed.
+                //
+                // drive.file is not "write, narrowly". It is per-FILE access to files the application
+                // itself created or the user explicitly opened with it, and that provenance is tracked
+                // by Google, not by us. So the wallet cannot know whether it suffices for a given
+                // request — and for a tool whose entire job is operating on Drive content it did not
+                // create, it essentially never does. Renaming an existing document, or creating one
+                // inside an existing folder, both fail with ACCESS_TOKEN_SCOPE_INSUFFICIENT: the parent
+                // is not a folder this app owns.
+                //
+                // Preferring it was therefore a guess that loses almost every time, and losing costs a
+                // hard 403 carrying Google's wording rather than ours. What the narrowing was supposed
+                // to buy is still bought where it is real: a READ is served by drive.readonly and the
+                // full-control token stays cold for the overwhelming majority of traffic. Tier still
+                // decides what is asked of a person; this only decides which token carries the call.
+                case MUTATE -> List.of("https://www.googleapis.com/auth/drive");
                 // Google sells no write-without-delete, so anything irreversible needs the full scope.
                 case DESTRUCTIVE -> List.of("https://www.googleapis.com/auth/drive");
             };

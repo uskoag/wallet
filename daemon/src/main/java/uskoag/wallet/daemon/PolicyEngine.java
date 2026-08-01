@@ -85,8 +85,13 @@ public final class PolicyEngine {
         // Only ever a name the wallet actually got out of Google; null when it could not, so a listing
         // never presents a guess as the document's title.
         r.label = res.label();
-        r.session = tier == Tier.DESTRUCTIVE ? session : null;
         r.match = answer.match() == null ? Match.EXACT : answer.match();
+        // Bound to the run in two cases, and the second one is what makes a wide rule safe to offer at
+        // all. An irreversible grant has always been session-bound. A rule matching EVERY resource now
+        // is too, whatever its tier: the reason someone ticks that box is a batch they are watching, and
+        // a permission covering everything must not outlive the command that asked for it and be
+        // inherited by whatever runs next. It still expires and, on the irreversible tier, still counts.
+        r.session = tier == Tier.DESTRUCTIVE || r.match == Match.ANY ? session : null;
         r.tier = tier;
         r.opsBudget = answer.ops();
         r.expiresAt = expiryFor(tier, answer.minutes());

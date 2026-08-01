@@ -22,9 +22,28 @@ public final class TokenCache {
     private final Map<String, Live> cache = new ConcurrentHashMap<>();
     private final NetHttpTransport transport = new NetHttpTransport();
 
-    /** The client half comes from the org, because that is where an OAuth client actually lives. */
+    /**
+     * The client half comes from the org, because that is where an OAuth client actually lives.
+     *
+     * <p><b>Keyed by the individual credential, not by the account.</b> It used to be keyed on the email
+     * alone, and that quietly undid the entire point of picking a token per request. An account here
+     * holds six of them — docs, drive.file, drive.readonly, drive full, mail read, mail write — so
+     * whichever one happened to mint first was handed to every later call for that account until it
+     * expired, whatever {@link TokenPicker} had chosen.
+     *
+     * <p>It failed in both directions, and the dangerous one was silent. Visibly: a request needing full
+     * {@code drive} received an access token minted from {@code drive.readonly} and came back
+     * ACCESS_TOKEN_SCOPE_INSUFFICIENT — confusing, but at least loud. Invisibly: an ordinary read was
+     * served by the full-control token, so "the narrowest sufficient token wins and the wide one stays
+     * cold" was not true of the traffic, only of the decision — and the audit recorded the narrow choice
+     * either way, which is the worst part. A record that says something safer happened than did is worse
+     * than no record.
+     *
+     * <p>The group is part of the key because it is what identifies the scope set; the org because the
+     * same address can exist under two OAuth clients and their access tokens are not interchangeable.
+     */
     public String accessToken(CredentialRecord cred, OrgRecord org) throws IOException {
-        var key = cred.account;
+        var key = cred.account + "|" + cred.orgId + "|" + cred.group;
         var live = cache.get(key);
         if (live != null && live.usableAt(System.currentTimeMillis() + EARLY_MS)) return live.token();
         synchronized (this) {

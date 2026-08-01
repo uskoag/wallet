@@ -26,6 +26,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import static luvjfx.Fx.button;
+import static luvjfx.Fx.checkBox;
 import static luvjfx.Fx.flowPane;
 import static luvjfx.Fx.hbox;
 import static luvjfx.Fx.label;
@@ -112,6 +113,27 @@ public final class ApprovalWindow {
         var gateNote = label("");
         var choices = new ArrayList<luvjfx.FxButton>();
 
+        /*
+         * How wide the rule is, which until now could not be chosen here at all.
+         *
+         * The dialog only ever wrote an EXACT rule, so one logical action over thirty files asked thirty
+         * times. Choosing a longer span did not help and could not: the span sets how long the rule
+         * stands, never what it covers, and the reasonable reading of "1 hour" is "stop asking me for an
+         * hour". Only the CLI could write a wider match, which is the wrong way round - the person being
+         * interrupted is the one who should be able to stop the interruption.
+         *
+         * Off by default, and it stays off by default. Cheap is how a control becomes a reflex, and the
+         * everyday case really is one document.
+         *
+         * The safety comes from binding, not from refusing. Anything ticked here is pinned to the session
+         * that asked, so it dies when that run ends and cannot be inherited by the next command - see
+         * PolicyEngine.remember. Together with the tier ceiling and, on the irreversible tier, the
+         * operation budget, the widest thing this can produce is "this batch, this run, up to N
+         * operations, up to the ceiling".
+         */
+        var wide = checkBox("Apply to everything this run touches, not just this one");
+        ((javafx.scene.control.CheckBox) wide.node).setSelected(false);
+
         Consumer<ApprovalAnswer> finish = a -> {
             answer.accept(a);
             stage.close();
@@ -128,7 +150,8 @@ public final class ApprovalWindow {
             // never on screen, for any tier.
             if (!ask.tier().allows(span)) continue;
             var b = button(span.label);
-            b.attr(x -> x.setOnAction(e -> finish.accept(grant(span, danger, settings.destructiveOps))));
+            b.attr(x -> x.setOnAction(e -> finish.accept(
+                    grant(span, danger, settings.destructiveOps, breadth(wide)))));
             choices.add(b);
             // Enter lands on the widest span this tier permits, which is bounded by construction — except
             // on the irreversible tier, where it lands on "Once" and a longer grant has to be aimed at.
@@ -148,6 +171,8 @@ public final class ApprovalWindow {
             var open = !locked;
             for (var c : choices) ((Button) c.node).setDisable(!open);
             ((TextField) custom.node).setDisable(!open);
+            // Widening is a grant like any other, so it sits behind the same passphrase.
+            ((javafx.scene.control.CheckBox) wide.node).setDisable(!open);
         };
         applyGate.run();
 
@@ -168,6 +193,7 @@ public final class ApprovalWindow {
                     gateNote.style("-fx-font-size: 11px; -fx-text-fill: " + GREEN + ";");
                     for (var c : choices) ((Button) c.node).setDisable(false);
                     ((TextField) custom.node).setDisable(false);
+                    ((javafx.scene.control.CheckBox) wide.node).setDisable(false);
                     ((Button) choices.getFirst().node).requestFocus();
                 } finally {
                     Arrays.fill(typed, '\0');
@@ -192,7 +218,7 @@ public final class ApprovalWindow {
                     return;
                 }
                 finish.accept(ApprovalAnswer.forMinutes(minutes, danger ? settings.destructiveOps : -1,
-                        Match.EXACT));
+                        breadth(wide)));
             });
         });
 
@@ -229,6 +255,21 @@ public final class ApprovalWindow {
         }
 
         content.nodes(
+                // Above the buttons, deliberately. It changes what every one of them does, and a
+                // modifier placed after the thing it modifies is read only by people who did not need
+                // it. This was originally below and the window height was not raised to fit it, so it
+                // sat off the bottom edge and 31 approvals were answered one at a time without it ever
+                // being seen — which is the exact complaint it exists to answer.
+                wide.style("-fx-font-weight: bold;"),
+                label("Off: this answer covers this one item — almost always what you want. On: it covers"
+                        + " everything this run touches, for one action that spans many files (a folder"
+                        + " move, a bulk share, creating a batch) where the buttons below would"
+                        + " otherwise be answered once per file. Tied to this run"
+                        + (ask.session() == null || ask.session().isBlank() ? "" : " — " + ask.session())
+                        + " — so it disappears when the command ends"
+                        + (danger ? ", and still stops at " + settings.destructiveOps + " operations." : "."))
+                        .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                separator(),
                 label(danger
                         ? "Approve for — capped at " + settings.destructiveOps + " operations and at "
                           + Span.describe(cap) + ", whichever comes first:"
@@ -237,7 +278,8 @@ public final class ApprovalWindow {
                         .style("-fx-font-size: 12px; -fx-font-weight: bold;").wrapText(true),
                 spans,
                 hbox().spacing(8).nodes(custom, deny),
-                label("Tab moves   ·   Enter takes the highlighted button   ·   Esc denies")
+                label("Tab moves   ·   Enter takes the highlighted button   ·   Esc denies"
+                        + "   ·   \"Once\" allows just this call and remembers nothing")
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                 closing.style("-fx-font-size: 10px; -fx-text-fill: #999;"));
 
@@ -246,7 +288,9 @@ public final class ApprovalWindow {
 
         deny.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.deny())));
 
-        var sc = scene(root, 640, locked ? 660 : 580);
+        // Tall enough for everything, and it must stay that way: this window has no scroll bar, so
+        // anything that does not fit is not merely cramped, it is invisible and silently unusable.
+        var sc = scene(root, 660, locked ? 810 : 700);
         sc.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE) finish.accept(ApprovalAnswer.deny());
         });
@@ -280,8 +324,13 @@ public final class ApprovalWindow {
      * Counts before clocks stays true on the irreversible tier: a span bounds a person's sitting and does
      * nothing to bound a loop, so every irreversible grant carries an operation cap as well.
      */
-    private static ApprovalAnswer grant(Span span, boolean danger, int ops) {
-        return ApprovalAnswer.forMinutes(span.minutes, danger ? ops : -1, Match.EXACT);
+    private static ApprovalAnswer grant(Span span, boolean danger, int ops, Match match) {
+        return ApprovalAnswer.forMinutes(span.minutes, danger ? ops : -1, match);
+    }
+
+    /** Ticked means every resource of this api, and {@link uskoag.wallet.daemon.PolicyEngine} then ties it to the run. */
+    private static Match breadth(luvjfx.FxCheckBox wide) {
+        return ((javafx.scene.control.CheckBox) wide.node).isSelected() ? Match.ANY : Match.EXACT;
     }
 
     private static String accent(Tier tier) {

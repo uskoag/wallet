@@ -23,6 +23,19 @@ public final class Proxy {
     /** Only a JSON body small enough to be a command gets read; media is never parsed. */
     private static final int PARSE_LIMIT = 1 << 20;
 
+    /**
+     * {@code UKAG_WALLET_TRACE=1} logs one line per request: method, path, tier, resource.
+     *
+     * <p>Off by default because it is one line per call and a scan makes thousands. On when you need to
+     * answer "why was I asked about that?", which is otherwise close to unanswerable — the audit records
+     * what the wallet decided but not the URL it decided from, and the whole classification hangs on the
+     * URL. It was needed the first time a batch of creates produced one approval per file when the rules
+     * say a create names no document; the audit could show the disagreement and not its cause.
+     *
+     * <p>Safe to leave on: a path and a method, never a body, never a header, never a token.
+     */
+    private static final boolean TRACE = System.getenv("UKAG_WALLET_TRACE") != null;
+
     private final WalletCore core;
     private final Gate gate;
     private HttpServer server;
@@ -66,8 +79,14 @@ public final class Proxy {
 
             var body = maybeRead(x);
             core.touch();
-            var facts = new RequestFacts(api.alias, x.getRequestMethod(), "/" + path, query, body);
+            var facts = new RequestFacts(api.alias, effectiveMethod(x), "/" + path, query, body);
             var classified = Rules.classify(facts);
+            if (TRACE) {
+                Log.info("trace " + x.getRequestMethod() + " /" + path
+                        + (query == null || query.isBlank() ? "" : "?" + query)
+                        + "  ->  " + classified.tier() + " " + classified.operation()
+                        + " on " + classified.resource().id());
+            }
 
             // Which token serves this is only knowable here: it depends on the API and the tier of this
             // individual call, not on the tool. Narrowest sufficient wins, so the wide tokens stay cold.
@@ -123,6 +142,30 @@ public final class Proxy {
         try (var in = x.getRequestBody()) {
             return in.readNBytes(PARSE_LIMIT);
         }
+    }
+
+    /**
+     * What the request really is, which is not always what the HTTP line says.
+     *
+     * <p>The Google Java client cannot send {@code PATCH} over {@code HttpURLConnection} — the JDK
+     * refuses the verb — so it sends {@code POST} carrying {@code X-HTTP-Method-Override: PATCH} and
+     * Google honours the header. Classifying on the wire verb therefore read every single Drive update
+     * as a create.
+     *
+     * <p>This was not cosmetic. A re-parent is {@code PATCH ?addParents=&removeParents=}, which the
+     * rules call irreversible and gate behind the passphrase, an operation budget and a one-hour
+     * ceiling. Seen as a POST it fell through to "create or upload" — an ordinary reversible edit — so
+     * moving a folder tree was being waved through under the weakest of the three tiers. It also named
+     * a different file on every call, which is why a batch asked once per item instead of once.
+     *
+     * <p>Trusting a client-supplied header to <em>widen</em> a classification would be a hole; this can
+     * only ever narrow the tool's freedom, because Google acts on the same header. If the client lies
+     * about the override, Google performs whatever the header says and so do we — the two cannot
+     * disagree, which is the only reason reading it here is safe.
+     */
+    private static String effectiveMethod(HttpExchange x) {
+        var override = first(x, "X-HTTP-Method-Override");
+        return override == null ? x.getRequestMethod() : override.trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     private static String first(HttpExchange x, String header) {
