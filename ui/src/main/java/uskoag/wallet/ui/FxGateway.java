@@ -22,6 +22,17 @@ public final class FxGateway implements ApprovalGateway {
 
     @Override
     public void unlockNeeded(String because) {
+        // A debug run is unattended by definition, so there is nobody to answer this window — and if
+        // somebody is at the machine, they are being interrupted by a question they did not cause.
+        // Debug mode unlocks at startup only and deliberately never re-unlocks, so the honest response
+        // to a lock during a debug run is to say what happened and let the caller fail: restarting the
+        // wallet is what re-arms it. Found by locking the wallet during an automated test and putting a
+        // passphrase prompt in front of someone who had gone to bed.
+        if (uskoag.wallet.daemon.Debug.on()) {
+            uskoag.wallet.daemon.Log.warn("locked during a debug run, and no window will be shown: "
+                    + because + ". Restart uskoag-wallet.exe --debug to unlock it again.");
+            return;
+        }
         Platform.runLater(() -> UnlockWindow.show(core, null, because));
     }
 

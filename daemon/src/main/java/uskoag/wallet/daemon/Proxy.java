@@ -64,7 +64,21 @@ public final class Proxy {
         try (x) {
             var grant = core.grants.get(first(x, GrantInitializer.HEADER));
             if (grant == null) {
-                fail(x, 401, "no valid wallet grant on this request");
+                // 403 and deliberately not 401, which this used to be. Every Google client treats 401
+                // as "the access token expired" and runs its credential's refresh-and-retry path: the
+                // response is consumed to make room for the retry, so by the time the exception reaches
+                // the caller both getContent() and getDetails() are null and the wallet's own
+                // "status":"WALLET" marker has been destroyed in transit. The retry cannot help either,
+                // because a wallet grant is not something a client can refresh — only unlocking the
+                // wallet reissues one.
+                //
+                // 403 is also the honest code: the caller authenticated fine, it simply has no live
+                // grant. It is what every other refusal in here already returns, so a bulk caller sees
+                // one shape for "the wallet said not now" instead of two. This cost two sessions —
+                // a mid-run lock was being recorded as one failure per item because the marker never
+                // arrived, and the code read as though it were being matched correctly.
+                fail(x, 403, "no valid wallet grant on this request — the wallet is locked or the grant"
+                        + " expired. Unlock it and run the same command again.");
                 return;
             }
             var raw = x.getRequestURI().getRawPath().substring("/g/".length());
