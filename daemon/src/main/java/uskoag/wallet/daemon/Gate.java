@@ -5,7 +5,6 @@ import uskoag.wallet.wire.ResourceRef;
 import uskoag.wallet.wire.Tier;
 
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -15,9 +14,16 @@ import java.util.concurrent.Semaphore;
  * <p>Before a person is asked anything, the resource is named. An id is not a question anybody can
  * answer, so a dialog carrying only an id gets approved every time and the approval means nothing.
  *
- * <p>Concurrent identical prompts are collapsed. Without that, a batch of forty deletions against one
- * folder would open forty dialogs and the fortieth would be answered by someone who stopped reading at
- * the second.
+ * <p><b>One question is on screen at a time, process-wide, and the rest queue behind it.</b> This used
+ * to collapse only <i>identical</i> questions, which meant a batch touching forty different files
+ * opened forty windows at once — they stack, they steal focus from each other, and the fortieth is
+ * answered by someone who stopped reading at the second. That is not consent, it is a clicking
+ * exercise, and it is how the habit of approving gets trained.
+ *
+ * <p>The queue is what makes it cheap rather than merely orderly: every waiting request re-checks the
+ * standing rules the moment it reaches the front, so one approval given with "everything this run
+ * touches" ticked satisfies the whole backlog without another window appearing. The common case
+ * collapses to a single dialog for a whole batch.
  */
 public final class Gate {
 
@@ -29,8 +35,21 @@ public final class Gate {
         ResourceNames.Named name(ResourceRef res);
     }
 
+    /**
+     * How long a request will stand in the queue before giving up.
+     *
+     * <p>Shorter than the client's read timeout on purpose, and it has to account for the queue as well
+     * as the dialog: a request that waited out its caller and then wrote a standing rule would be a
+     * permission granted for work that had already failed.
+     */
+    private static final long QUEUE_WAIT_SECONDS = 200;
+
     private final WalletCore core;
-    private final ConcurrentHashMap<String, Semaphore> inFlight = new ConcurrentHashMap<>();
+
+    /**
+     * Fair, so a long batch cannot starve the one interactive request a person is actually waiting on.
+     */
+    private final Semaphore oneAtATime = new Semaphore(1, true);
 
     public Gate(WalletCore core) {
         this.core = core;
@@ -82,19 +101,32 @@ public final class Gate {
     private uskoag.wallet.wire.ApprovalAnswer prompt(Grant grant, Classification c, String kind) {
         if (!core.gateway().interactive()) return null;
 
-        var key = grant.session() + "|" + c.resource().api() + "|" + c.resource().id() + "|" + c.tier();
-        var lock = inFlight.computeIfAbsent(key, k -> new Semaphore(1));
+        boolean mine;
         try {
-            lock.acquire();
+            mine = oneAtATime.tryAcquire(QUEUE_WAIT_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
         }
+        if (!mine) {
+            // Refused rather than queued indefinitely, and said plainly. A bulk caller reads this as a
+            // wallet refusal and pauses with a resume instruction, which is the right outcome: the
+            // person is evidently not at the machine working through the queue.
+            return uskoag.wallet.wire.ApprovalAnswer.denied("nobody answered the queue of pending"
+                    + " approvals within " + QUEUE_WAIT_SECONDS + "s");
+        }
         try {
-            // Someone may have answered the identical question while we queued behind them.
+            // The re-check that makes queueing cheap. Whoever was in front may have answered a question
+            // broad enough to cover this one — that is the whole point of the "everything this run
+            // touches" option — in which case this request never becomes a window at all.
             var already = core.policy.matching(grant.profile(), grant.account(), grant.session(),
                     c.resource(), c.tier());
             if (already != null) return uskoag.wallet.wire.ApprovalAnswer.once();
+
+            // Locking while a queue was forming is an answer too, and not one to put a window up for.
+            if (!core.keyring.unlocked()) {
+                return uskoag.wallet.wire.ApprovalAnswer.denied("the wallet locked while this was queued");
+            }
 
             var answer = core.gateway().ask(new ApprovalAsk(
                     UUID.randomUUID().toString().substring(0, 8), grant.correlationCode(), grant.profile(),
@@ -112,8 +144,7 @@ public final class Gate {
             }
             return answer;
         } finally {
-            lock.release();
-            inFlight.remove(key, lock);
+            oneAtATime.release();
         }
     }
 

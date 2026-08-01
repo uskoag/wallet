@@ -26,6 +26,18 @@ public record ApprovalAnswer(boolean allowed, boolean remember, int ops, int min
                 "nobody answered the wallet within " + seconds + "s, so it was refused");
     }
 
+    /**
+     * Refused before a window was ever shown, for a reason worth passing on verbatim.
+     *
+     * <p>Distinct from {@link #deny()}, which means a person said no. These are the cases where asking
+     * would have been pointless or impossible — the wallet locked while the request waited its turn, or
+     * the queue of pending approvals was never worked through — and a caller that reports "denied" for
+     * those sends someone looking for a decision nobody made.
+     */
+    public static ApprovalAnswer denied(String why) {
+        return new ApprovalAnswer(false, false, 0, 0, Match.EXACT, why);
+    }
+
     /** One operation, nothing written down. The safe default when someone hits Enter without reading. */
     public static ApprovalAnswer once() {
         return new ApprovalAnswer(true, false, 1, 0, Match.EXACT, null);
