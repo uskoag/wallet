@@ -23,6 +23,28 @@ public final class WalletLauncher {
     }
 
     public static Optional<WalletClient> start() {
+        // The launcher on PATH first, because the jar search below only ever finds anything for callers
+        // that live inside the wallet's own build tree — it resolves relative to the calling jar, so for
+        // uskoag-gsheetscli it looks in gservices/spreadsheet_cli/target and finds nothing. Every
+        // migrated tool therefore failed to start the wallet and fell through to the legacy app-key
+        // prompt whenever the wallet happened not to be running already.
+        var exe = onPath("uskoag-wallet.exe");
+        if (exe.isPresent()) {
+            try {
+                Files.createDirectories(WalletPaths.home());
+                new ProcessBuilder(exe.get().toString())
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                        .redirectError(ProcessBuilder.Redirect.appendTo(WalletPaths.logFile().toFile()))
+                        .start();
+                for (var i = 0; i < 90; i++) {
+                    var c = WalletClient.ifRunning();
+                    if (c.isPresent()) return c;
+                    Thread.sleep(500);
+                }
+            } catch (Exception ignored) {
+                // fall through to the jar route
+            }
+        }
         try {
             var jar = walletJar();
             if (jar.isEmpty()) return Optional.empty();
@@ -60,6 +82,22 @@ public final class WalletLauncher {
      * inside a client jar: version skew between an embedded wallet and an installed one is exactly the
      * bug you do not want to be debugging under pressure.
      */
+    /** An executable on PATH, which is how every tool here is actually invoked. */
+    public static Optional<Path> onPath(String exe) {
+        var path = System.getenv("PATH");
+        if (path == null) return Optional.empty();
+        for (var dir : path.split(java.io.File.pathSeparator)) {
+            if (dir.isBlank()) continue;
+            try {
+                var p = Path.of(dir.trim(), exe);
+                if (Files.isRegularFile(p)) return Optional.of(p);
+            } catch (Exception ignored) {
+                // an unparseable PATH entry is not a reason to stop looking at the rest
+            }
+        }
+        return Optional.empty();
+    }
+
     public static Optional<Path> walletJar() {
         var env = System.getenv("UKAG_WALLET_JAR");
         if (env != null && Files.exists(Path.of(env))) return Optional.of(Path.of(env));

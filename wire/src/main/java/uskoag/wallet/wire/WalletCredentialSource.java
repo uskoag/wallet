@@ -26,9 +26,30 @@ public final class WalletCredentialSource implements CredentialSource {
         return 100;
     }
 
+    /**
+     * True whenever this machine has a wallet at all — running, launchable, or merely set up.
+     *
+     * <p>The last of those three is the one that matters, and it is a safety property rather than a
+     * convenience. When this returned false, {@link uskoag.gservices.Credentials} fell through to the
+     * legacy app-key source, which prompts for the key this whole design exists to stop being typed
+     * around. That happened for real: the wallet was restarted, a tool ran during the three seconds it
+     * was down, and the person at the machine was shown a box demanding a secret, titled "no wallet
+     * installed" — which was false, and pointed at a remedy that did not apply.
+     *
+     * <p>It is also a bypass. The pre-migration {@code tokens_<md5>} stores still exist on disk, so
+     * anyone who stops the wallet and supplies the old app-key gets the old unpoliced access back, with
+     * no approval, no expiry and no audit. An enforcement point that can be removed by closing a window
+     * is not one.
+     *
+     * <p>So the existence of a keyring is treated as proof that this machine's answer is the wallet. If
+     * it cannot be reached, the caller is told to start it — never quietly offered the old way in.
+     */
     @Override
     public boolean available() {
-        return WalletClient.ifRunning().isPresent() || WalletLauncher.walletJar().isPresent();
+        return WalletClient.ifRunning().isPresent()
+                || java.nio.file.Files.exists(WalletPaths.keyringFile())
+                || WalletLauncher.onPath("uskoag-wallet.exe").isPresent()
+                || WalletLauncher.walletJar().isPresent();
     }
 
     /**
