@@ -18,6 +18,35 @@ public final class MainWindow {
     private MainWindow() {
     }
 
+    /**
+     * Builds a tab, or says why it could not, rather than rendering nothing.
+     *
+     * <p>An empty window is the same class of failure as the "received no bytes" fixed in the proxy and
+     * the control server: it looks like nothing rather than like an error, so it gets diagnosed as a
+     * rendering problem, or a data problem, or "it is probably overloaded". The actual cause is almost
+     * always mundane and always the same one — <b>the jar was rebuilt underneath the running wallet</b>,
+     * so the next class this pane needs cannot load. That is the one failure a person cannot guess at
+     * and can fix in five seconds once told.
+     *
+     * <p>Catches {@link Throwable} deliberately: {@link LinkageError} is an {@code Error}, so catching
+     * {@code Exception} here would leave exactly the case this exists for unhandled.
+     */
+    private static javafx.scene.Node tab(java.util.function.Supplier<javafx.scene.Node> build) {
+        try {
+            return build.get();
+        } catch (Throwable t) {
+            uskoag.wallet.daemon.Log.error("could not build a tab", t);
+            var why = t instanceof LinkageError
+                    ? "This wallet is running from a jar that has since been rebuilt.\n\n"
+                      + "Close it and start uskoag-wallet again — nothing is lost, and the keyring is untouched."
+                    : "This tab could not be built:\n\n" + t;
+            var l = new javafx.scene.control.Label(why);
+            l.setWrapText(true);
+            l.setStyle("-fx-padding: 24; -fx-font-size: 13px;");
+            return l;
+        }
+    }
+
     public static void show(WalletCore core) {
         if (stage != null) {
             Ui.toFront(stage);
@@ -30,11 +59,11 @@ public final class MainWindow {
         var tabs = tabPane().attr(t -> {
             t.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
             t.getTabs().addAll(
-                    new Tab("Clients", OrgsPane.build(core)),
-                    new Tab("Accounts", AccountsPane.build(core)),
-                    new Tab("Permissions", PolicyPane.build(core)),
-                    new Tab("Audit", AuditPane.build(core)),
-                    new Tab("Settings", SettingsPane.build(core)));
+                    new Tab("Clients", tab(() -> OrgsPane.build(core))),
+                    new Tab("Accounts", tab(() -> AccountsPane.build(core))),
+                    new Tab("Permissions", tab(() -> PolicyPane.build(core))),
+                    new Tab("Audit", tab(() -> AuditPane.build(core))),
+                    new Tab("Settings", tab(() -> SettingsPane.build(core))));
             t.getSelectionModel().select(1);
         });
 

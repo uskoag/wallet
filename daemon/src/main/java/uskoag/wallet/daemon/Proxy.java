@@ -138,9 +138,16 @@ public final class Proxy {
             var org = core.keyring.org(chosen.orgId).orElse(null);
             var bearer = core.tokens.accessToken(chosen, org);
 
+            // Timed separately from everything else the wallet does, because it is not the wallet
+            // doing it: this span contains the approval dialog and the queue behind it, which is a
+            // person reading a question. Folding human time into an "overhead" figure would report a
+            // wallet that answers in 5 ms as costing 85% — a number that is both true and completely
+            // misleading, and exactly the kind of thing a later reader would quote at face value.
+            var gateStart = System.nanoTime();
             var decision = gate.decide(grant, classified, res -> res.isBrowse()
                     ? ResourceNames.Named.resolved(res.label(), "listing and search")
                     : core.names.resolve(api, res.id(), grant.account(), bearer));
+            var waitedNs = System.nanoTime() - gateStart;
             if (!decision.allowed()) {
                 fail(x, 403, decision.why());
                 return;
@@ -156,12 +163,12 @@ public final class Proxy {
             var upstreamStart = System.nanoTime();
             Forward.relay(x, api, path, query, body, bearer, core.proxyPortValue());
             if (TRACE) {
-                var now = System.nanoTime();
-                var upstreamMs = (now - upstreamStart) / 1_000_000;
-                var walletMs = (upstreamStart - arrivedAt) / 1_000_000;
+                var upstreamMs = (System.nanoTime() - upstreamStart) / 1_000_000;
+                var waitedMs = waitedNs / 1_000_000;
+                var walletMs = (upstreamStart - arrivedAt - waitedNs) / 1_000_000;
                 Log.info("timing " + x.getRequestMethod() + " /" + path
-                        + "  wallet=" + walletMs + "ms  upstream=" + upstreamMs + "ms  overhead="
-                        + (upstreamMs + walletMs == 0 ? "0"
+                        + "  wallet=" + walletMs + "ms  waited=" + waitedMs + "ms  upstream=" + upstreamMs
+                        + "ms  overhead=" + (upstreamMs + walletMs == 0 ? "0"
                            : String.format("%.2f", 100.0 * walletMs / (walletMs + upstreamMs))) + "%");
             }
         } catch (Throwable t) {
