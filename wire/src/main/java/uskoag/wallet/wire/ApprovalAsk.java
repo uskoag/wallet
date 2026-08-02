@@ -11,6 +11,11 @@ package uskoag.wallet.wire;
  *                     {@code mailbox} — or, when the wallet could not get a name out of Google, the
  *                     reason it could not. Either way it is shown: an unidentified resource is
  *                     something the person approving has to be told, not left to infer from a gap.
+ * @param requiresPassphrase demand the passphrase whatever the tier says. The irreversible tier already
+ *                     does this by settings; this is for a grant that is wide rather than irreversible,
+ *                     where the blast radius comes from breadth. There is no silent default for it,
+ *                     which is why it is a component every caller states rather than a flag with a
+ *                     convenience constructor: a security requirement that can be omitted will be.
  */
 public record ApprovalAsk(
         String requestId,
@@ -26,7 +31,8 @@ public record ApprovalAsk(
         int itemCount,
         String peerCommand,
         long pid,
-        String session) {
+        String session,
+        boolean requiresPassphrase) {
 
     public String headline() {
         var what = itemCount > 1 ? operation + " " + itemCount + " items" : operation;

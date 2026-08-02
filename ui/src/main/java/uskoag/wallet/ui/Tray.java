@@ -19,15 +19,43 @@ import java.awt.image.BufferedImage;
 public final class Tray {
 
     private static TrayIcon icon;
+    private static MenuItem lockItem, unlockItem;
+    private static Boolean shownUnlocked;
 
     private Tray() {
     }
 
-    public static void install(Runnable onOpen, Runnable onLock, Runnable onRevokeAll) {
+    /**
+     * Reflects the actual lock state, in words and in the icon.
+     *
+     * <p>Until now the tray showed neither. One fixed dark-green icon and a tooltip that was only the
+     * product name, whatever the wallet was doing — and a green light is read as ready. So a locked wallet
+     * presented as an unlocked one, and "Lock now" was offered while it was already locked. Being told the
+     * wrong state by the one thing on screen is worse than being told nothing, because it is acted on.
+     *
+     * <p>Polled rather than pushed, deliberately: the state changes from places the window never hears
+     * about — {@code walletcli unlock}, {@code walletcli lock}, and the idle auto-lock, which is the one
+     * that matters most because nobody is there when it fires.
+     */
+    public static void state(boolean unlocked, String detail) {
+        if (icon == null) return;
+        if (shownUnlocked != null && shownUnlocked == unlocked && detail == null) return;
+        shownUnlocked = unlocked;
+        icon.setToolTip(uskoag.wallet.wire.Brand.NAME + (unlocked ? " — UNLOCKED" : " — LOCKED")
+                + (detail == null || detail.isBlank() ? "" : ": " + detail));
+        icon.setImage(badged(unlocked));
+        if (lockItem != null) lockItem.setEnabled(unlocked);
+        if (unlockItem != null) unlockItem.setEnabled(!unlocked);
+    }
+
+    public static void install(Runnable onOpen, Runnable onUnlock, Runnable onLock, Runnable onRevokeAll) {
         if (!SystemTray.isSupported()) return;
         var menu = new PopupMenu();
         menu.add(item("Open wallet", onOpen));
-        menu.add(item("Lock now", onLock));
+        unlockItem = item("Unlock…", onUnlock);
+        menu.add(unlockItem);
+        lockItem = item("Lock now", onLock);
+        menu.add(lockItem);
         // Here as well as in the Permissions tab, because this is a thing worth doing casually and
         // periodically rather than deliberately: it only costs a click each to grant them again, and it
         // touches nothing at Google. An action whose worst case is "you approve a few documents again"
@@ -46,6 +74,42 @@ public final class Tray {
             SystemTray.getSystemTray().add(icon);
         } catch (AWTException ignored) {
         }
+    }
+
+    /**
+     * The base icon with a state badge over it: green for unlocked, amber with a bar for locked.
+     *
+     * <p>A badge rather than a different picture, because the icon also has to stay recognisable as this
+     * application in a tray of thirty. Amber and not red: locked is the safe state and the correct resting
+     * state, not a fault.
+     */
+    private static Image badged(boolean unlocked) {
+        var base = trayImage();
+        var w = Math.max(16, base.getWidth(null));
+        var h = Math.max(16, base.getHeight(null));
+        var img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        var g = img.createGraphics();
+        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+        g.drawImage(base, 0, 0, w, h, null);
+        if (!unlocked) {
+            // Dimmed as well as badged, so the state survives being 16 pixels wide on a dark taskbar where
+            // a small colour difference is not reliably visible.
+            g.setColor(new java.awt.Color(0, 0, 0, 110));
+            g.fillRect(0, 0, w, h);
+        }
+        var d = Math.max(6, w / 2);
+        g.setColor(unlocked ? new java.awt.Color(0x2E, 0x7D, 0x32) : new java.awt.Color(0xE6, 0x8A, 0x00));
+        g.fillOval(w - d, h - d, d - 1, d - 1);
+        g.setColor(java.awt.Color.WHITE);
+        g.setStroke(new java.awt.BasicStroke(Math.max(1f, w / 16f)));
+        if (unlocked) {
+            g.drawLine(w - d + d / 4, h - d / 2, w - d / 2, h - d / 4 - 1);
+            g.drawLine(w - d / 2, h - d / 4 - 1, w - d / 5, h - d + d / 5);
+        } else {
+            g.drawLine(w - d + d / 4, h - d / 2, w - d / 4 - 1, h - d / 2);
+        }
+        g.dispose();
+        return img;
     }
 
     public static void note(String title, String message) {

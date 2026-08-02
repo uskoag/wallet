@@ -37,7 +37,18 @@ public final class WalletApp extends Application {
             return;
         }
 
-        Tray.install(() -> MainWindow.show(wallet.core), this::lock, this::revokeAll);
+        Tray.install(this::open, this::unlock, this::lock, this::revokeAll);
+        Tray.state(wallet.core.keyring.unlocked(), null);
+
+        // Polled, because the lock state changes from places this process never hears about: walletcli
+        // lock and unlock, and the idle auto-lock — which is the one that matters, since by definition
+        // nobody is watching when it fires. Five seconds is far below the granularity anyone notices and
+        // the check is a field read.
+        var watch = new javafx.animation.Timeline(new javafx.animation.KeyFrame(
+                javafx.util.Duration.seconds(5),
+                e -> Tray.state(wallet.core.keyring.unlocked(), null)));
+        watch.setCycleCount(javafx.animation.Animation.INDEFINITE);
+        watch.play();
 
         // Nothing on screen at startup, by default. The main window was appearing on every launch and
         // being closed again immediately, which is a step added to a thing that runs at boot; and the
@@ -122,11 +133,44 @@ public final class WalletApp extends Application {
         }
     }
 
+    /**
+     * The tray's "Open wallet", and what it does depends on the lock state.
+     *
+     * <p>It used to call {@link MainWindow#show} unconditionally, so opening a locked wallet produced the
+     * main window over a keyring it could not read: every tab empty, and the Accounts tab stating "No
+     * accounts yet" — which of a credential store reads as the credentials having been destroyed. The
+     * window has nothing to show and nothing to do until the passphrase is in, so asking for it first is
+     * both the honest order and the one that leads somewhere.
+     */
+    private void open() {
+        if (wallet.core.keyring.unlocked()) {
+            MainWindow.show(wallet.core);
+            return;
+        }
+        UnlockWindow.show(wallet.core, () -> {
+            Tray.state(true, null);
+            MainWindow.show(wallet.core);
+        }, "Locked — the passphrase is needed before there is anything to show.");
+    }
+
+    /** Tray "Unlock…", for when the window is not what is wanted, only the passphrase. */
+    private void unlock() {
+        if (wallet.core.keyring.unlocked()) {
+            Tray.note(uskoag.wallet.wire.Brand.NAME, "Already unlocked.");
+            return;
+        }
+        UnlockWindow.show(wallet.core, () -> {
+            Tray.state(true, null);
+            Tray.note(uskoag.wallet.wire.Brand.NAME,
+                    "Unlocked. Tools on this machine can now reach Google through it.");
+        }, null);
+    }
+
     private void lock() {
         wallet.core.lock();
         MainWindow.hide();
+        Tray.state(false, null);
         Tray.note(uskoag.wallet.wire.Brand.NAME, "Locked. Everything in flight has stopped.");
-        UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), "Locked from the tray.");
     }
 
     @Override

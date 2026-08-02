@@ -27,12 +27,42 @@ public final class PolicyCommands {
             case "revoke" -> WalletCli.out(client.callRaw("policy.revoke", ask(a, a.at(2))));
             case "check" -> WalletCli.out(client.callRaw("policy.check", ask(a, a.get("resource", a.at(2)))));
             case "allow" -> WalletCli.out(client.callRaw("policy.allow", ask(a, a.get("resource", a.at(2)))));
+            case "quiet" -> quiet(client, a);
             case "extend" -> extend(client, a);
             default -> {
-                System.err.println("usage: uskoag-walletcli policy list|check|allow|extend|revoke|clear");
+                System.err.println("usage: uskoag-walletcli policy list|check|allow|quiet|extend|revoke|clear");
                 yield 1;
             }
         };
+    }
+
+    /**
+     * {@code policy quiet --tier read|write}. One rule covering every document, for the tier's ceiling.
+     *
+     * <p>The defaults are wide on purpose — every account, every API — because the reason anyone runs this
+     * is that they do not want to think about which documents a batch will touch. Narrowing with
+     * {@code --account} or {@code --api} is offered and is better hygiene where the answer is known.
+     *
+     * <p>{@code --tier write} covers reading too, since MUTATE outranks READ, so heavy automation needs
+     * one of these and not two.
+     */
+    private static int quiet(WalletClient client, Args a) throws Exception {
+        var tier = a.get("tier", null);
+        if (tier == null) {
+            System.err.println("usage: uskoag-walletcli policy quiet --tier read|write [--account e]"
+                    + " [--api sheets|drive|gmail|slides] [--minutes N]");
+            System.err.println("  --tier write covers read as well. Asks for the passphrase, because this"
+                    + " covers documents nobody has named.");
+            return 1;
+        }
+        var t = tier(tier);
+        if (t == null) {
+            System.err.println("--tier '" + tier + "' is not a tier. Use read or write.");
+            return 1;
+        }
+        return WalletCli.out(client.callRaw("policy.quiet", new PolicyRequest(
+                null, a.get("account", null), a.get("api", null), null,
+                t, Match.EXACT, a.num("minutes", 0), a.num("ops", 0), a.get("reason", null))));
     }
 
     /**
@@ -51,20 +81,54 @@ public final class PolicyCommands {
             System.err.println("--by '" + by + "' is not a span. Try 45m, 12h, 10d, 3w, 6mo, 2y, or forever.");
             return 1;
         }
+        var t = tier(a.get("tier", "read"));
+        if (t == null) {
+            System.err.println("--tier '" + a.get("tier", "read")
+                    + "' is not a tier. Use read, write or destructive.");
+            return 1;
+        }
         return WalletCli.out(client.callRaw("policy.extend", new PolicyRequest(
-                a.get("profile", "*"), a.get("account", "*"), a.get("api", "drive"), id,
-                Tier.valueOf(a.get("tier", "read").toUpperCase()),
+                a.get("profile", "*"), a.get("account", "*"), a.get("api", "drive"), id, t,
                 Match.valueOf(a.get("match", "exact").toUpperCase()),
                 minutes, a.num("ops", 0), a.get("reason", null))));
     }
 
+    /**
+     * A tier from what a person would actually type, or null.
+     *
+     * <p>{@code Tier.valueOf} was called directly here, so {@code --tier write} died with
+     * {@code No enum constant uskoag.wallet.wire.Tier.WRITE} — while {@code --tier write} was what
+     * {@code walletcli --help} recommended for {@code check}, {@code allow} and {@code quiet}, what both
+     * client tools' help recommended, and what the global instructions told a fresh agent to run. Five
+     * documented incantations, none of which worked, all of them failing at exactly the moment someone was
+     * trying to set permissions up BEFORE a batch — the one thing the documentation insists you get right.
+     *
+     * <p>Found by a sub-agent that had only the help text to go on, which is the only way it would have been
+     * found: everyone who knew the tier was called MUTATE typed MUTATE.
+     */
+    static Tier tier(String s) {
+        if (s == null) return null;
+        return switch (s.trim().toLowerCase()) {
+            case "read" -> Tier.READ;
+            case "write", "mutate", "change" -> Tier.MUTATE;
+            case "destructive", "delete", "irreversible" -> Tier.DESTRUCTIVE;
+            default -> null;
+        };
+    }
+
     private static PolicyRequest ask(Args a, String resource) {
+        var t = tier(a.get("tier", "read"));
+        if (t == null) {
+            System.err.println("--tier '" + a.get("tier", "read")
+                    + "' is not a tier. Use read, write or destructive.");
+            System.exit(2);
+        }
         return new PolicyRequest(
                 a.get("profile", "*"),
                 a.get("account", "*"),
                 a.get("api", "drive"),
                 resource,
-                Tier.valueOf(a.get("tier", "read").toUpperCase()),
+                t,
                 Match.valueOf(a.get("match", "exact").toUpperCase()),
                 a.num("minutes", 0),
                 a.num("ops", 0),

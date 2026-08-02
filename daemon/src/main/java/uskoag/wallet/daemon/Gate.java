@@ -58,11 +58,31 @@ public final class Gate {
     public Decision decide(Grant grant, Classification c, Namer namer) {
         var ruling = core.policy.decide(grant.profile(), grant.account(), grant.session(), c);
         if (ruling.verdict() != Verdict.PROMPT) {
-            // Borrow the name the rule recorded when it was approved. Nothing is asked of Google on this
-            // path — that is the whole point of the standing rule — so this is the only way the audit
-            // line says which document it was.
-            var known = ruling.rule() == null || ruling.rule().label == null
-                    ? c : c.withResource(c.resource().withLabel(ruling.rule().label));
+            /*
+             * Name the document that was actually touched, which is NOT always the one the rule remembers.
+             *
+             * This borrowed rule.label unconditionally, and for an EXACT rule that is right: the rule is
+             * about that one document. For any rule broader than one document it is wrong, and silently.
+             * A match=ANY rule remembers the single document that happened to be on screen when it was
+             * approved, so every later request it covers was logged under that name — four different
+             * spreadsheets all recorded as "DocsList", ids correct, names wrong. A blanket rule has no
+             * label at all, so everything it covers would have logged as a bare id.
+             *
+             * The audit is the only record of what this machine did with a credential. A name that is
+             * confidently wrong is worse there than no name, because a bare id invites a lookup and a wrong
+             * name ends the enquiry.
+             *
+             * Cache first, since it costs nothing and is usually warm — the first touch of a document
+             * resolved it. Then the rule's own label, but only when the rule is about exactly this
+             * document. Otherwise the bare id, honestly.
+             */
+            var rule = ruling.rule();
+            var exact = rule != null && rule.match == uskoag.wallet.wire.Match.EXACT
+                    && rule.resource != null && rule.resource.equals(c.resource().id());
+            var name = core.names.cachedName(uskoag.wallet.wire.GApi.of(c.resource().api()),
+                            c.resource().id(), grant.account())
+                    .orElse(exact ? rule.label : null);
+            var known = name == null ? c : c.withResource(c.resource().withLabel(name));
             record(grant, known, ruling.verdict());
             return ruling.verdict() == Verdict.ALLOW ? Decision.OK
                     : Decision.no("refused by wallet policy: " + known.operation()
@@ -141,7 +161,10 @@ public final class Gate {
             var answer = core.gateway().ask(new ApprovalAsk(
                     UUID.randomUUID().toString().substring(0, 8), grant.correlationCode(), grant.profile(),
                     grant.appName(), grant.account(), c.resource().api(), c.operation(), c.resource(),
-                    kind, c.tier(), c.itemCount(), grant.peerCommand(), grant.pid(), grant.session()));
+                    kind, c.tier(), c.itemCount(), grant.peerCommand(), grant.pid(), grant.session(),
+                    // An ordinary request names one document, so the tier decides: DESTRUCTIVE brings the
+                    // passphrase with it via settings, and nothing else needs to.
+                    false));
 
             if (!answer.allowed()) return answer;
             if (answer.remember()) {

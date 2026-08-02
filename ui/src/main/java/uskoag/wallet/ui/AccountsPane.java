@@ -72,7 +72,20 @@ public final class AccountsPane {
                         .add(new TreeItem<>(Row.token(a.email(), t)));
                 root.getChildren().add(accNode);
             }
-            if (root.getChildren().isEmpty()) root.getChildren().add(new TreeItem<>(Row.note(null, "No accounts yet.")));
+            // "No accounts yet." was said whenever the list came back empty, and WalletCore.accounts()
+            // returns an empty list while the keyring is locked — it cannot read the names, which is not
+            // the same fact as there being none. So a locked wallet reported, confidently, that every
+            // account had gone. That is alarming in the one place alarm is expensive: it reads as data
+            // loss, and the honest answer was three accounts, present, behind a passphrase.
+            //
+            // Same defect as the empty approval window and the narrowed glob: absence rendered as a clean
+            // answer rather than as "not known from here".
+            if (root.getChildren().isEmpty()) {
+                root.getChildren().add(new TreeItem<>(Row.note(null, core.keyring.unlocked()
+                        ? "No accounts yet."
+                        : "LOCKED — the accounts cannot be read until the wallet is unlocked."
+                          + " Nothing is missing; unlock to see them.")));
+            }
             tree.setRoot(root);
         };
         refresh.run();

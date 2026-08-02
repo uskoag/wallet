@@ -96,6 +96,20 @@ public final class ResourceNames {
         return fresh;
     }
 
+    /**
+     * The name if it is already known, without asking Google.
+     *
+     * <p>For the paths that must not pay a lookup — chiefly a request a standing rule already covers, which
+     * is the whole point of the rule. Usually warm, because the first touch of a document resolved it.
+     */
+    public java.util.Optional<String> cachedName(GApi api, String id, String account) {
+        if (id == null) return java.util.Optional.empty();
+        var hit = cache.get(account + "|" + api.alias + "|" + id);
+        if (hit == null || hit.named().status() != Status.RESOLVED) return java.util.Optional.empty();
+        if (System.currentTimeMillis() - hit.at() >= POSITIVE_MS) return java.util.Optional.empty();
+        return java.util.Optional.ofNullable(hit.named().name());
+    }
+
     /** Dropped on lock, along with everything else derived from a credential. */
     public void clear() {
         cache.clear();

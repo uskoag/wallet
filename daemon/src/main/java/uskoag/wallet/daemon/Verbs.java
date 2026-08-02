@@ -38,8 +38,15 @@ public final class Verbs {
             }
             case "passwd" -> passwd(body);
             case "access" -> Json.of(core.access(Json.to(body, AccessRequest.class)));
-            case "accounts" -> Json.of(core.accounts());
-            case "orgs" -> Json.of(core.orgs());
+            // Refused rather than answered with an empty list. core.accounts() and core.orgs() both return
+            // nothing while the keyring is locked, and `[]` from a verb whose job is to inventory what this
+            // machine holds is read as "it holds nothing" — which, of a credential store, reads as loss.
+            // Say which of the two facts it is; the caller can then unlock and ask again.
+            case "accounts" -> core.keyring.unlocked() ? Json.of(core.accounts())
+                    : Json.of(Asks.Done.no("locked — cannot list accounts. Nothing is missing; unlock"
+                    + " the wallet and run this again."));
+            case "orgs" -> core.keyring.unlocked() ? Json.of(core.orgs())
+                    : Json.of(Asks.Done.no("locked — cannot list OAuth clients. Unlock and run again."));
             case "profiles" -> Json.of(Profiles.known());
             case "org.add" -> accounts.addOrg(Json.to(body, Asks.AddOrg.class));
             case "org.domains" -> accounts.setDomains(Json.to(body, Asks.OrgDomains.class));
@@ -49,11 +56,9 @@ public final class Verbs {
             case "import" -> accounts.importOld(Json.to(body, Asks.Import.class));
             case "export" -> accounts.export(Json.to(body, Asks.Export.class));
             case "forget" -> accounts.forget(Json.to(body, Asks.Forget.class));
-            case "policy.list", "policy.check", "policy.allow", "policy.extend",
-                 "policy.revoke", "policy.clear" ->
-                    policy.dispatch(verb, body);
-            case "token.list", "token.remove", "token.reorder", "token.unused", "token.removeUnused" ->
-                    tokens.dispatch(verb, body);
+            // Prefix routing for these two namespaces is handled in the default branch below, so adding a
+            // verb means editing the class that owns it and nothing else.
+            // token.* likewise — see the default branch.
             case "groups" -> Json.of(uskoag.wallet.wire.Groups.all());
             case "audit" -> audit(body);
             case "backups" -> Json.of(CredentialsBackup.all().stream().map(CredentialsBackup::orgOf).toList());
@@ -69,7 +74,23 @@ public final class Verbs {
                 }).start();
                 yield Json.of(Asks.Done.yes("shutting down"));
             }
-            default -> Json.of(Asks.Done.no("unknown verb: " + verb));
+            /*
+             * Namespaces are delegated whole, by prefix, rather than enumerated case by case.
+             *
+             * The enumerated list was a second place that had to be edited to add a verb, and it was duly
+             * forgotten: `policy quiet` was implemented in PolicyVerbs, wired into the CLI, documented in
+             * two help texts and shipped — and answered "unknown verb: policy.quiet", because this switch
+             * had never heard of it. Nothing was lost by the omission except an evening.
+             *
+             * Both delegates already end in their own unknown-verb branch, so an unrecognised policy.* or
+             * token.* verb is still refused; it is refused by the class that owns the namespace, which is
+             * also the class that knows what the valid ones are.
+             */
+            default -> {
+                if (verb != null && verb.startsWith("policy.")) yield policy.dispatch(verb, body);
+                if (verb != null && verb.startsWith("token.")) yield tokens.dispatch(verb, body);
+                yield Json.of(Asks.Done.no("unknown verb: " + verb));
+            }
         };
     }
 

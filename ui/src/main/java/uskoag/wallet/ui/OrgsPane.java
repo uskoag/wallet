@@ -65,7 +65,13 @@ public final class OrgsPane {
         domains.attr(t -> t.setPrefRowCount(6));
         var status = label("");
 
-        Runnable refresh = () -> table.setItems(FXCollections.observableArrayList(core.orgs()));
+        Runnable refresh = () -> {
+            // core.orgs() is empty while locked, so the placeholder has to be chosen here and not once at
+            // build time, or a locked wallet claims the OAuth clients are gone.
+            Cols.placeholder(table, core.keyring.unlocked(),
+                    "No OAuth clients yet. Give one a short id below and upload its credentials.json.");
+            table.setItems(FXCollections.observableArrayList(core.orgs()));
+        };
         refresh.run();
 
         table.getSelectionModel().selectedItemProperty()

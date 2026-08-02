@@ -59,7 +59,19 @@ public final class PolicyRule {
         return ruleValue == null || "*".equals(ruleValue) || ruleValue.equalsIgnoreCase(actual);
     }
 
+    /** True for a blanket rule: no api and no resource, so it covers everything at its tier. */
+    public boolean blanket() {
+        return api == null && resource == null;
+    }
+
     public String describe() {
+        // Spelled out rather than left as "* / * / * / *", because a listing is read to decide what to
+        // revoke, and four asterisks are easy to skim past as "unset" when they mean the opposite.
+        if (blanket()) {
+            return tier + "  EVERYTHING on " + (account == null ? "every account" : account)
+                    + "  [" + (opsBudget >= 0 ? (opsBudget - opsUsed) + " ops left" : "unlimited ops")
+                    + ", " + until() + "]";
+        }
         var named = label == null || label.isBlank()
                 ? (resource == null ? "*" : resource)
                 : label + " (" + resource + ")";

@@ -51,6 +51,23 @@ public final class Cols {
         fill(table);
     }
 
+    /**
+     * The message an empty table shows, chosen at refresh time rather than fixed at construction.
+     *
+     * <p>Everything in these tables is read out of the keyring, and a locked keyring yields an empty list
+     * — so a fixed placeholder says "no OAuth clients yet" or "no standing permissions" at precisely the
+     * moment it cannot know either. That is not a cosmetic difference. Told "No accounts yet" by a locked
+     * wallet, the reasonable reading is that the credentials have been destroyed, and the true answer was
+     * that three accounts were sitting there behind a passphrase.
+     *
+     * <p>Call this from the pane's refresh, not once at build time, since the lock state changes under it.
+     */
+    static <T> void placeholder(TableView<T> table, boolean unlocked, String emptyMessage) {
+        table.setPlaceholder(new javafx.scene.control.Label(unlocked ? emptyMessage
+                : "LOCKED — this cannot be read until the wallet is unlocked."
+                  + " Nothing is missing; unlock to see it."));
+    }
+
     static String stamp(long millis) {
         return millis <= 0 ? "" : STAMP.format(Instant.ofEpochMilli(millis));
     }

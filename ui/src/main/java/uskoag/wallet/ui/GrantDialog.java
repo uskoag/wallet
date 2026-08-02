@@ -159,6 +159,9 @@ public final class GrantDialog {
         var sc = scene(root.style(Ui.INK), 640, 640);
         Ui.escCloses(sc, stage, null);
         stage.setScene(sc);
+        // Sized to the scope list rather than to a guess: this window is as tall as the account's consents
+        // make it, so 640 was dead space for a short list and off the screen edge for a long one.
+        Ui.fitToContent(stage, root.node, 640);
         stage.showAndWait();
         return out.get();
     }

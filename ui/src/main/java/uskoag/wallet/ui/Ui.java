@@ -23,6 +23,32 @@ public final class Ui {
     private Ui() {
     }
 
+    /** Title bar and borders: a stage's height includes them, a scene's does not. */
+    private static final int CHROME = 40;
+
+    /**
+     * Sizes a window to the height its content actually needs, and never past the usable screen.
+     *
+     * <p>Here rather than in each window because every one of them carried a hand-picked height, and a
+     * constant cannot be right for content that varies: an approval dialog shows different rows per tier,
+     * a resolved document name wraps to one line or three, a scope list is as long as the account's
+     * consents. Every such number was wrong in both directions at once — dead space at the bottom of the
+     * short cases, and the tall cases running past the bottom edge of the screen, where a control is not
+     * cramped but invisible.
+     *
+     * <p>Call it after {@code setScene}: {@code prefHeight} is meaningless until CSS has been applied,
+     * since font sizes here are set in style strings and every wrapped label's height depends on them.
+     *
+     * @param content the scene root, or the node inside a scroll pane when there is one
+     */
+    static void fitToContent(Stage stage, javafx.scene.Parent content, double width) {
+        content.applyCss();
+        content.layout();
+        var usable = javafx.stage.Screen.getPrimary().getVisualBounds();
+        stage.setWidth(width);
+        stage.setHeight(Math.min(content.prefHeight(width) + CHROME, usable.getHeight() * 0.94));
+    }
+
     /** Blocks the calling thread until the FX thread produces a value. Never call this from FX. */
     public static <T> T onFx(Supplier<T> work) {
         if (Platform.isFxApplicationThread()) return work.get();

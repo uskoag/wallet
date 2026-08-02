@@ -54,17 +54,23 @@ public final class AuditPane {
         var filter = textField();
 
         Runnable refresh = () -> {
-            var rows = core.keyring.unlocked()
+            var unlocked = core.keyring.unlocked();
+            var rows = unlocked
                     ? core.audit.recent(LIMIT)
                     : java.util.List.<Map<String, Object>>of();
+            // "Nothing recorded yet." over a locked wallet reads as an audit that lost its history, which
+            // is the worst thing this particular table could imply about itself.
+            Cols.placeholder(table, unlocked, "Nothing recorded yet.");
             var needle = ((javafx.scene.control.TextField) filter.node).getText();
             var shown = needle == null || needle.isBlank() ? rows : rows.stream()
                     .filter(r -> String.valueOf(r.values()).toLowerCase().contains(needle.toLowerCase()))
                     .toList();
             table.setItems(FXCollections.observableArrayList(shown));
-            status.text(shown.size() + " of " + rows.size() + " row(s) shown, newest " + LIMIT
-                    + " loaded. Detail columns are encrypted at rest and readable here only while the"
-                    + " wallet is unlocked.");
+            status.text(!unlocked
+                    ? "LOCKED — the audit cannot be read. This is not an empty audit."
+                    : shown.size() + " of " + rows.size() + " row(s) shown, newest " + LIMIT
+                      + " loaded. Detail columns are encrypted at rest and readable here only while the"
+                      + " wallet is unlocked.");
         };
 
         filter.attr(f -> {

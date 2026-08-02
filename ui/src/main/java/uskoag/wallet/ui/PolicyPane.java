@@ -60,8 +60,15 @@ public final class PolicyPane {
         picker.getSelectionModel().select(Span.DAY);
 
         Runnable refresh = () -> {
-            var rules = core.keyring.unlocked() ? core.policy.rules() : java.util.List.<PolicyRule>of();
+            var unlocked = core.keyring.unlocked();
+            var rules = unlocked ? core.policy.rules() : java.util.List.<PolicyRule>of();
+            Cols.placeholder(table, unlocked,
+                    "No standing permissions. A rule is only ever created by approving something.");
             table.setItems(FXCollections.observableArrayList(rules));
+            if (!unlocked) {
+                status.text("LOCKED — the standing rules cannot be read. This is not zero rules.");
+                return;
+            }
             status.text(rules.size() + " standing rule(s).   Del revokes   ·   E extends by the chosen span."
                     + "   Ceilings, measured from now and not raisable: read "
                     + Span.describe(Tier.READ.maxMinutes) + ", change "

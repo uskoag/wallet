@@ -48,6 +48,17 @@ public final class MainWindow {
     }
 
     public static void show(WalletCore core) {
+        // Refused over a locked keyring, here rather than only at the call sites. Every tab reads out of
+        // the keyring, so a locked one produces five empty tabs and — worse — panes that stated an empty
+        // result as a fact: "No accounts yet" over three intact accounts. Guarding each caller is how the
+        // tray came to be the one that did not, so the guard belongs at the single point everything goes
+        // through. The caller wanting a window on a locked wallet is asking in the wrong order; ask for
+        // the passphrase, then show it.
+        if (!core.keyring.unlocked()) {
+            UnlockWindow.show(core, () -> show(core),
+                    "Locked — the passphrase is needed before there is anything to show.");
+            return;
+        }
         if (stage != null) {
             Ui.toFront(stage);
             return;

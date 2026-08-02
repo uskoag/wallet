@@ -40,6 +40,16 @@ they then make is classified and policed where the request actually is.
   policy allow --api sheets --resource <id> --tier write [--minutes 60] [--ops 50] [--match exact]
                                     ask for a standing rule; raises the same dialog a first touch
                                     would have raised, because a process must not grant itself one
+  policy quiet --tier read|write [--account e] [--api sheets] [--minutes N]
+                                    STOP ASKING ME. One rule covering every document at that tier,
+                                    until the tier's ceiling - a week to read, a day to write - and
+                                    --tier write covers read too, so heavy automation needs one of
+                                    these and not two. Asks for the passphrase, because this covers
+                                    documents nobody has named. Shows in policy list and is revoked
+                                    by id like anything else, which is what makes it different from
+                                    readRequiresRule=false in the Settings tab: that has no expiry
+                                    at all, appears in no listing, and leaves nothing to revoke.
+                                    There is no blanket irreversible tier and there will not be
   policy extend <ruleId> --by 1w    push a rule's expiry out and refresh its operation count. Capped
                                     at the tier ceiling measured from now, so topping up repeatedly is
                                     not a way around it. Raises the dialog for the same reason allow
@@ -48,6 +58,9 @@ they then make is classified and policed where the request actually is.
   policy clear                      drop them all
 
   audit [--limit 100]               what was actually attempted, denials included
+  session                           which run of work this invocation presents itself as, where that
+                                    came from, and the process chain it was derived from. Needs no
+                                    wallet. Run it when you are being asked the same question twice
 
   backups                           plain credentials.json files left by earlier versions
   purgebackups                      delete them. The wallet keeps none now and sweeps these on
@@ -70,6 +83,44 @@ Tiers
   mutate        create, update, append, draft, add slides
   destructive   delete, trash, move or re-parent, clear an unbounded range, every permission change
 
+Running automation without being interrupted - READ THIS BEFORE A BATCH
+  Three things prompt and three things do not, and knowing which is the whole difference between a
+  quiet run and thirty dialogs.
+
+  Free, always: browsing, listing and searching. They name no document, so there is nothing to
+  approve. In uskoag-gdrivecli, search / ls / tree / du / localpath do not reach the wallet at all -
+  they answer from the local index.
+
+  One dialog per document, then silent: the first touch of a named document. The answer is a standing
+  rule and it does persist across separate command invocations - a week for read, a day for write.
+
+  Every time: the irreversible tier. By design, and it is not configurable.
+
+  So for a batch, do ONE of these first, largest hammer last:
+
+    uskoag-walletcli policy check ...     will this be allowed? Ask before starting, not halfway
+    uskoag-walletcli policy allow ...     pre-approve the specific documents you know you will touch
+    uskoag-walletcli policy quiet --tier write
+                                          stop asking me, for everything, for a day
+
+  The approval dialog's "apply to every item this command touches" checkbox is NOT how you stop being
+  asked across commands. It is bound to the session, so it covers one command however wide it is.
+  Ticking it repeatedly is how one spreadsheet produced six dialogs in two and a half minutes.
+
+  UKAG_WALLET_SESSION is the other half, and it only matters for session-bound permissions - the
+  breadth checkbox and every irreversible grant. Export it once, before the first tool call, and every
+  invocation in that run presents the same session, so one approval covers the run:
+
+    $env:UKAG_WALLET_SESSION = "invoice reconciliation, March"      (PowerShell)
+    export UKAG_WALLET_SESSION="invoice reconciliation, March"      (bash)
+
+  Words rather than a hex string: this is what the dialog and the audit show, and "which run of work is
+  this" is a question answered from words. It is a correlation key and never an authorisation
+  boundary - anything running as you can read or forge it, so nothing is trusted to it.
+
+  With nothing exported the session is DERIVED from process ancestry, and that is a best-effort guess
+  which fails in both directions - see the 'session' verb, which prints what you would get and why.
+
 Notes
   Secrets are never flags. The passphrase and any old app-key are read from a hidden console prompt,
   so nothing lands in shell history or an agent transcript.
@@ -77,6 +128,10 @@ Notes
   Browsing and search never prompt. The first touch of a new document prompts once, and the answer
   becomes a standing rule. Only the irreversible tier keeps asking, and it is bounded by a count
   before a clock, because a time window bounds a human's session and does not bound a machine's.
+
+  A rule is matched on (profile, account, api, resource), and null or * is a wildcard in any of those.
+  So a rule written for one document covers that document from any tool, and a blanket rule covers
+  everything. MUTATE outranks READ, so a write permission also allows reading.
 
   Settings live INSIDE the keyring, edited from the Settings tab of the app, and are readable only
   while it is unlocked. A settings file beside the keyring would be one that anything running as you
