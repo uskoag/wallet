@@ -45,6 +45,10 @@ public final class PolicyCommands {
      *
      * <p>{@code --tier write} covers reading too, since MUTATE outranks READ, so heavy automation needs
      * one of these and not two.
+     *
+     * <p>The ceiling here is the BLANKET one and it is shorter than the tier's ordinary ceiling: 24 hours
+     * to read anything, 1 hour to change anything, against a week and a day for a rule about one named
+     * document. Same grant, same ceiling, from the wallet's tray window — the two are one mechanism.
      */
     private static int quiet(WalletClient client, Args a) throws Exception {
         var tier = a.get("tier", null);
@@ -53,6 +57,11 @@ public final class PolicyCommands {
                     + " [--api sheets|drive|gmail|slides] [--minutes N]");
             System.err.println("  --tier write covers read as well. Asks for the passphrase, because this"
                     + " covers documents nobody has named.");
+            System.err.println("  Capped at " + Span.describe(Tier.READ.blanketMaxMinutes) + " for read and "
+                    + Span.describe(Tier.MUTATE.blanketMaxMinutes) + " for write — shorter than a rule"
+                    + " about one named document, because this one names none.");
+            System.err.println("  The same thing with a window instead: the wallet's tray icon →"
+                    + " \"Open access for a while…\".");
             return 1;
         }
         var t = tier(tier);

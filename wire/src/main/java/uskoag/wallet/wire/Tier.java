@@ -9,13 +9,13 @@ package uskoag.wallet.wire;
 public enum Tier {
 
     /** list, search, get, download, export. Silent while unlocked. The 95% path. */
-    READ(60 * 24 * 7),
+    READ(60 * 24 * 7, 60 * 24),
 
     /** create, update, append, draft, add. Silent while unlocked, logged, rate-limited. */
-    MUTATE(60 * 24),
+    MUTATE(60 * 24, 60),
 
     /** delete, trash, move, re-parent, clear a large range, every permission change. Prompted and budgeted. */
-    DESTRUCTIVE(60);
+    DESTRUCTIVE(60, 0);
 
     /**
      * The longest a permission of this tier may ever stand: a week to read, a day to change, an hour to do
@@ -33,8 +33,33 @@ public enum Tier {
      */
     public final int maxMinutes;
 
-    Tier(int maxMinutes) {
+    /**
+     * The longest a rule covering EVERY document may stand — a day to read anything, an hour to change
+     * anything, and no such thing at all for the irreversible tier.
+     *
+     * <p>Tighter than {@link #maxMinutes} because it is a different object. A per-document rule is bounded
+     * by the document: the worst it can do is the worst that can be done to one file somebody looked at and
+     * named. A blanket rule has no such bound, so the only thing standing between it and everything the
+     * account can reach is the clock — and a clock is a weak bound stretched over a week.
+     *
+     * <p>His numbers, and the reason he asked for the mode in the first place is worth keeping in view: the
+     * nagging was too much, so the answer had to be an actual open door rather than advice to click faster.
+     * A door that opens wide is a door that closes soon.
+     *
+     * <p>Enforced in {@link uskoag.wallet.wire.Tier} only as a number; the enforcement is in
+     * {@code PolicyEngine.expiryFor}, keyed on the rule naming no resource, so both the tray window and
+     * {@code policy quiet} get it and so would any third route.
+     */
+    public final int blanketMaxMinutes;
+
+    Tier(int maxMinutes, int blanketMaxMinutes) {
         this.maxMinutes = maxMinutes;
+        this.blanketMaxMinutes = blanketMaxMinutes;
+    }
+
+    /** The ceiling that applies to this rule: a blanket one is held to the shorter clock. */
+    public int ceiling(boolean blanket) {
+        return blanket ? blanketMaxMinutes : maxMinutes;
     }
 
     public boolean atLeast(Tier other) {
@@ -43,6 +68,10 @@ public enum Tier {
 
     /** The spans worth offering for this tier: bounded, and never past the ceiling. */
     public boolean allows(Span span) {
-        return span.minutes > 0 && span.minutes <= maxMinutes;
+        return allows(span, false);
+    }
+
+    public boolean allows(Span span, boolean blanket) {
+        return span.minutes > 0 && span.minutes <= ceiling(blanket);
     }
 }

@@ -22,6 +22,7 @@ public final class WalletApp extends Application {
     @Override
     public void start(Stage ignored) throws Exception {
         Platform.setImplicitExit(false);
+        logFxFailures();
         wallet.core.gateway(new FxGateway(wallet.core));
         try {
             wallet.start();
@@ -37,7 +38,7 @@ public final class WalletApp extends Application {
             return;
         }
 
-        Tray.install(this::open, this::unlock, this::lock, this::revokeAll);
+        Tray.install(this::open, this::unlock, this::lock, this::revokeAll, this::openAccess);
         Tray.state(wallet.core.keyring.unlocked(), null);
 
         // Polled, because the lock state changes from places this process never hears about: walletcli
@@ -82,6 +83,49 @@ public final class WalletApp extends Application {
             Tray.note(uskoag.wallet.wire.Brand.NAME, "Running, and locked. The passphrase is asked for when a tool"
                     + " first needs it.");
         }
+    }
+
+    /**
+     * Anything that dies on the FX thread has to reach the log, because otherwise it reaches nowhere.
+     *
+     * <p><b>Written after this cost twenty minutes of diagnosis on a wallet that looked healthy.</b> A jar
+     * had been replaced under a running wallet — the documented failure — and the resulting symptom was not
+     * any of the ones already written down. The control port answered, {@code status} was correct, the FX
+     * and AWT threads were both alive and idle, and the log's last line was an ordinary auto-lock. The
+     * tray's "Unlock…" and "Open wallet" simply did nothing: no window, no message, no trace. It took
+     * enumerating the process's top-level Win32 windows to establish that no unlock stage was ever created.
+     *
+     * <p>The reason is structural rather than incidental. {@code Platform.runLater} hands a throwing task
+     * to the FX thread's uncaught-exception handler, whose default prints to {@code stderr} — and
+     * {@code uskoag-wallet.exe} is a GUI process with no console attached, so stderr is discarded. Every
+     * failure inside every one of this application's windows was therefore invisible by construction, and
+     * the more central the window, the more completely it failed in silence.
+     *
+     * <p>Both handlers, deliberately. The FX thread's own covers the windows; the default covers the proxy
+     * and control worker threads, which have the same missing sink. The tray balloon is part of the fix and
+     * not decoration: the log is the right record, but somebody who has just clicked a menu item that did
+     * nothing needs to be told that on screen, where they are looking.
+     */
+    private static void logFxFailures() {
+        Thread.UncaughtExceptionHandler handler = (thread, error) -> {
+            Log.error("unhandled failure on " + thread.getName()
+                    + " — if a window failed to appear, this is why", error);
+            // A rebuilt jar under a running wallet is by far the most common cause, so name it rather than
+            // making the next person rediscover it from a stack trace.
+            var linkage = error instanceof LinkageError
+                    || error.getCause() instanceof LinkageError;
+            try {
+                Tray.note(uskoag.wallet.wire.Brand.NAME, (linkage
+                        ? "Its own code has been replaced underneath it — restart uskoag-wallet.exe. "
+                        : "") + "Something failed: " + error.getClass().getSimpleName()
+                        + ". See wallet.log.");
+            } catch (Throwable ignored) {
+                // The handler must never throw. Failing to report a failure is bad; turning it into a
+                // second failure inside the reporter is how a process stops answering altogether.
+            }
+        };
+        Thread.currentThread().setUncaughtExceptionHandler(handler);
+        Thread.setDefaultUncaughtExceptionHandler(handler);
     }
 
     /** What someone starting an already-running app actually wants: its window, not a warning. */
@@ -151,6 +195,17 @@ public final class WalletApp extends Application {
             Tray.state(true, null);
             MainWindow.show(wallet.core);
         }, "Locked — the passphrase is needed before there is anything to show.");
+    }
+
+    /**
+     * Tray "Open access for a while…". Refreshes the main window if it happens to be up, so the new rule
+     * is visible in the Permissions tab immediately rather than at the next manual refresh — the whole
+     * argument for this being a rule rather than a mode is that it can be seen and revoked.
+     */
+    private void openAccess() {
+        OpenAccessWindow.show(wallet.core, () -> {
+            if (MainWindow.isShowing()) MainWindow.show(wallet.core);
+        });
     }
 
     /** Tray "Unlock…", for when the window is not what is wanted, only the passphrase. */

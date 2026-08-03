@@ -93,4 +93,9 @@ public final class MainWindow {
     public static void hide() {
         if (stage != null) stage.hide();
     }
+
+    /** So a caller can refresh what is on screen without raising a window nobody asked for. */
+    public static boolean isShowing() {
+        return stage != null && stage.isShowing();
+    }
 }

@@ -48,7 +48,8 @@ public final class Tray {
         if (unlockItem != null) unlockItem.setEnabled(!unlocked);
     }
 
-    public static void install(Runnable onOpen, Runnable onUnlock, Runnable onLock, Runnable onRevokeAll) {
+    public static void install(Runnable onOpen, Runnable onUnlock, Runnable onLock, Runnable onRevokeAll,
+                               Runnable onOpenAccess) {
         if (!SystemTray.isSupported()) return;
         var menu = new PopupMenu();
         menu.add(item("Open wallet", onOpen));
@@ -56,10 +57,17 @@ public final class Tray {
         menu.add(unlockItem);
         lockItem = item("Lock now", onLock);
         menu.add(lockItem);
+        menu.addSeparator();
+        // The answer to "stop asking me", and it has to be HERE rather than on the approval dialog.
+        // Somewhere to click when the interruption arrives is exactly what turns a bounded decision into a
+        // reflex; the way out of being asked repeatedly should be a thing you go and do on purpose, from
+        // the tray, with the passphrase in front of it. See OpenAccessWindow.
+        menu.add(item("Open access for a while…", onOpenAccess));
         // Here as well as in the Permissions tab, because this is a thing worth doing casually and
         // periodically rather than deliberately: it only costs a click each to grant them again, and it
         // touches nothing at Google. An action whose worst case is "you approve a few documents again"
         // should be no further away than the one whose worst case is locking yourself out of a batch.
+        // Directly under the item that opens access, because it is how you close it again.
         menu.add(item("Revoke all permissions", onRevokeAll));
         menu.addSeparator();
         menu.add(item("Quit", () -> {
@@ -116,9 +124,27 @@ public final class Tray {
         if (icon != null) icon.displayMessage(title, message, TrayIcon.MessageType.INFO);
     }
 
+    /**
+     * A menu item that says so when it fails, because the alternative is a click that does nothing.
+     *
+     * <p>{@code Platform.runLater} sends a throwing task to the FX thread's uncaught-exception handler,
+     * which by default writes to a {@code stderr} that a GUI process does not have. So "Unlock…" and "Open
+     * wallet" once failed in complete silence — no window, no balloon, no log line — under a wallet whose
+     * jar had been replaced beneath it. {@link WalletApp} now installs a handler that logs, and this names
+     * <em>which</em> item died, which the handler cannot know.
+     */
     private static MenuItem item(String text, Runnable action) {
         var m = new MenuItem(text);
-        m.addActionListener(e -> Platform.runLater(action::run));
+        m.addActionListener(e -> Platform.runLater(() -> {
+            try {
+                action.run();
+            } catch (Throwable t) {
+                uskoag.wallet.daemon.Log.error("tray item '" + text + "' failed", t);
+                note(uskoag.wallet.wire.Brand.NAME, "'" + text + "' could not run: "
+                        + t.getClass().getSimpleName() + ". If this wallet's jar was rebuilt while it was"
+                        + " running, restart uskoag-wallet.exe. See wallet.log.");
+            }
+        }));
         return m;
     }
 

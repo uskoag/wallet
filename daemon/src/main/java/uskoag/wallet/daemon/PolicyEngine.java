@@ -94,7 +94,10 @@ public final class PolicyEngine {
         r.session = tier == Tier.DESTRUCTIVE || r.match == Match.ANY ? session : null;
         r.tier = tier;
         r.opsBudget = answer.ops();
-        r.expiresAt = expiryFor(tier, answer.minutes());
+        // Blanket is read off the rule itself — no resource id means every resource — rather than taken
+        // from whoever is asking. The tray's open-access window and `policy quiet` are two doors onto one
+        // grant, and a ceiling either of them could state for itself is a ceiling neither of them enforces.
+        r.expiresAt = expiryFor(tier, answer.minutes(), r.resource == null);
         r.createdAt = System.currentTimeMillis();
         r.note = note;
         keyring.data().rules().add(r);
@@ -110,15 +113,22 @@ public final class PolicyEngine {
      * {@link Tier#maxMinutes} for why the ceilings are what they are and why they are not configurable.
      *
      * @param minutes what was asked for; 0 or anything past the tier's ceiling is clamped to the ceiling
+     * @param blanket true when the rule names no document, which is held to the shorter of the two
+     *                ceilings — see {@link Tier#blanketMaxMinutes}
      */
-    public long expiryFor(Tier tier, int minutes) {
-        var cap = tier.maxMinutes;
+    public long expiryFor(Tier tier, int minutes, boolean blanket) {
+        var cap = tier.ceiling(blanket);
         var granted = minutes <= 0 ? cap : Math.min(minutes, cap);
         if (minutes <= 0 || minutes > cap) {
-            Log.warn(tier + " permission asked for " + (minutes <= 0 ? "no expiry" : Span.describe(minutes))
+            Log.warn((blanket ? "blanket " : "") + tier + " permission asked for "
+                    + (minutes <= 0 ? "no expiry" : Span.describe(minutes))
                     + "; capped at " + Span.describe(cap));
         }
         return System.currentTimeMillis() + granted * 60_000L;
+    }
+
+    public long expiryFor(Tier tier, int minutes) {
+        return expiryFor(tier, minutes, false);
     }
 
     public synchronized List<PolicyRule> rules() {
@@ -152,12 +162,15 @@ public final class PolicyEngine {
         // just never an accumulating one.
         var now = System.currentTimeMillis();
         var tier = rule.tier == null ? Tier.READ : rule.tier;
-        var ceiling = now + tier.maxMinutes * 60_000L;
+        // The blanket ceiling has to apply here too, and for the same reason the tier ceiling does: an
+        // extension that used the wider number would be the documented way around the narrower one.
+        var cap = tier.ceiling(rule.resource == null);
+        var ceiling = now + cap * 60_000L;
         var wanted = minutes <= 0 ? ceiling : Math.max(now, rule.expiresAt) + minutes * 60_000L;
         rule.expiresAt = Math.min(wanted, ceiling);
         if (wanted > ceiling) {
             Log.warn("extension of " + tier + " rule " + id + " capped at "
-                    + Span.describe(tier.maxMinutes) + " from now");
+                    + Span.describe(cap) + " from now");
         }
         rule.opsUsed = 0;
         keyring.save();

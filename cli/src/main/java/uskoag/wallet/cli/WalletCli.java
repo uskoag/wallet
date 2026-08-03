@@ -118,7 +118,8 @@ public final class WalletCli {
         System.out.println("and it is a correlation key, never an authorisation boundary.");
         System.out.println();
         System.out.println("To stop being asked at all, that is a different question and the answer is");
-        System.out.println("  uskoag-walletcli policy quiet --tier write");
+        System.out.println("  uskoag-walletcli policy quiet --tier write   (or the tray icon →");
+        System.out.println("  \"Open access for a while…\" — same grant, same ceiling, with a window)");
         return 0;
     }
 
