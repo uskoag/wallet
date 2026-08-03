@@ -192,7 +192,7 @@ public final class WalletCore {
 
         var api = GApi.of(req.api());
         var g = grants.issue(account.get(), req.profile(), req.appName(), api.alias,
-                req.session(), req.pid(), req.peerCommand());
+                req.session(), req.pid(), req.caller());
         return new AccessGrant(g.token(), "http://127.0.0.1:" + proxyPort + "/g/" + api.alias + "/",
                 account.get(), g.correlationCode(), 0L, null);
     }

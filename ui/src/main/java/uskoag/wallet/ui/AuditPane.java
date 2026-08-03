@@ -47,6 +47,10 @@ public final class AuditPane {
                 Cols.of("N", 45, r -> Cols.text(r.get("count"))),
                 Cols.of("Session", 175, r -> Cols.text(r.get("session"))),
                 Cols.of("Pid", 65, r -> Cols.text(r.get("pid"))),
+                // Before the Command column, because it is the shorter answer to "what was this?" — the
+                // directory names the project, and rows written before callers stated one carry null,
+                // which reads as blank rather than as a claim that it ran nowhere.
+                Cols.of("Directory", 240, r -> Cols.text(r.get("dir"))),
                 Cols.of("Command", 320, r -> Cols.text(r.get("peer"))));
         Cols.ready(table, "Nothing recorded yet.");
 

@@ -216,7 +216,8 @@ public final class AccountVerbs {
                 .orElseThrow(() -> new IOException("no OAuth client stored for org '" + cred.orgId + "'"));
         core.audit.record(new AuditEvent(System.currentTimeMillis(), "wallet", req.account(), "wallet",
                 req.raw() ? "EXPORT RAW CREDENTIAL" : "export access token", uskoag.wallet.wire.Tier.DESTRUCTIVE,
-                Verdict.ALLOW, 1, "cli", ProcessHandle.current().pid(), req.account(), "wallet export"));
+                Verdict.ALLOW, 1, "cli", ProcessHandle.current().pid(), req.account(),
+                "uskoag-walletcli export", null));
         if (!req.raw()) {
             return Json.of(Map.of("accessToken", core.tokens.accessToken(cred, org),
                     "group", cred.group, "expiresInSeconds", 3600));

@@ -161,7 +161,7 @@ public final class Gate {
             var answer = core.gateway().ask(new ApprovalAsk(
                     UUID.randomUUID().toString().substring(0, 8), grant.correlationCode(), grant.profile(),
                     grant.appName(), grant.account(), c.resource().api(), c.operation(), c.resource(),
-                    kind, c.tier(), c.itemCount(), grant.peerCommand(), grant.pid(), grant.session(),
+                    kind, c.tier(), c.itemCount(), grant.caller(), grant.pid(), grant.session(),
                     // An ordinary request names one document, so the tier decides: DESTRUCTIVE brings the
                     // passphrase with it via settings, and nothing else needs to.
                     false));
@@ -183,8 +183,10 @@ public final class Gate {
 
     private void record(Grant grant, Classification c, Verdict verdict) {
         if (c.tier() == Tier.READ && c.resource().isBrowse() && verdict == Verdict.ALLOW) return;
+        var caller = uskoag.wallet.wire.CallerInfo.orUnknown(grant.caller());
         core.audit.record(new AuditEvent(System.currentTimeMillis(), grant.profile(), grant.account(),
                 c.resource().api(), Debug.tag(c.operation()), c.tier(), verdict, c.itemCount(),
-                grant.session(), grant.pid(), c.resource().display(), grant.peerCommand()));
+                grant.session(), grant.pid(), c.resource().display(),
+                caller.commandLine(), caller.workingDir()));
     }
 }

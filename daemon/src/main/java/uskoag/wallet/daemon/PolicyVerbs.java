@@ -87,7 +87,7 @@ public final class PolicyVerbs {
                 "cli", "CLI ", r.profile(), "uskoag-walletcli", account, r.api(),
                 "stand a rule allowing " + r.tier(), res,
                 resolved ? named.detail() : "NAME UNRESOLVED — " + named.detail(),
-                r.tier(), 1, "wallet policy allow", ProcessHandle.current().pid(), "cli", false));
+                r.tier(), 1, cliCaller("policy allow"), ProcessHandle.current().pid(), "cli", false));
         if (!answer.allowed()) return Json.of(PolicyReply.of(false, "denied", "you declined"));
 
         var wanted = new ApprovalAnswer(true, true,
@@ -110,8 +110,10 @@ public final class PolicyVerbs {
      * lock, it appears in no listing, and there is nothing to revoke. This has an expiry, shows up in
      * {@code policy list}, and is revocable by id like anything else.
      *
-     * <p>Three things bound it. The tier ceiling, so a blanket read lasts a week and a blanket write a
-     * day. The passphrase, because breadth is where the blast radius is and a click can be synthesised by
+     * <p>Three things bound it. The <b>blanket</b> ceiling, which is shorter than the ordinary tier ceiling
+     * and deliberately so — {@code Tier.blanketMaxMinutes}, a day to read anything and an hour to change
+     * anything, against a week and a day for a rule about one named document. The passphrase, because
+     * breadth is where the blast radius is and a click can be synthesised by
      * anything running as this user. And the refusal below: DESTRUCTIVE can never be blanket, because
      * "delete anything, unattended, for an hour" is not a permission a person can meaningfully hold in
      * mind, and the irreversible tier is the one place where being asked every time is the feature.
@@ -151,7 +153,7 @@ public final class PolicyVerbs {
                 "cli", "CLI ", null, "uskoag-walletcli", account, api,
                 "stand a rule allowing " + tier + " on EVERYTHING", res,
                 "blanket permission — " + scope,
-                tier, 1, "wallet policy quiet", ProcessHandle.current().pid(), "cli",
+                tier, 1, cliCaller("policy quiet --tier " + tier), ProcessHandle.current().pid(), "cli",
                 // Not because it is irreversible; because it is wide.
                 true));
         if (!answer.allowed()) return Json.of(PolicyReply.of(false, "denied", "you declined"));
@@ -167,6 +169,15 @@ public final class PolicyVerbs {
 
     private static boolean wild(String v) {
         return v == null || v.isBlank() || "*".equals(v);
+    }
+
+    /**
+     * These asks come from inside the wallet answering a socket verb, so there is no client invocation to
+     * report and the directory of the wallet process would be a misleading thing to print. Stated as a
+     * declaration because it is one: the wallet knows exactly what it is doing here.
+     */
+    private static uskoag.wallet.wire.CallerInfo cliCaller(String verb) {
+        return new uskoag.wallet.wire.CallerInfo(null, "uskoag-walletcli " + verb, true);
     }
 
     /**
@@ -187,7 +198,7 @@ public final class PolicyVerbs {
                 "cli", "CLI ", rule.profile, "uskoag-walletcli", rule.account, rule.api,
                 "extend an existing " + rule.tier + " permission by " + Span.describe(r.minutes()),
                 res, "standing rule " + rule.id + ", " + rule.until(), rule.tier, 1,
-                "wallet policy extend", ProcessHandle.current().pid(), "cli", false));
+                cliCaller("policy extend " + rule.id), ProcessHandle.current().pid(), "cli", false));
         if (!answer.allowed()) return Json.of(PolicyReply.of(false, "denied", "you declined"));
 
         try {

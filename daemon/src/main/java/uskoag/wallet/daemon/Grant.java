@@ -13,6 +13,6 @@ public record Grant(
         String session,
         String correlationCode,
         long pid,
-        String peerCommand,
+        uskoag.wallet.wire.CallerInfo caller,
         long issuedAt) {
 }

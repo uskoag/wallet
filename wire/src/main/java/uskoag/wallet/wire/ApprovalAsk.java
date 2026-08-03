@@ -16,6 +16,9 @@ package uskoag.wallet.wire;
  *                     where the blast radius comes from breadth. There is no silent default for it,
  *                     which is why it is a component every caller states rather than a flag with a
  *                     convenience constructor: a security requirement that can be omitted will be.
+ * @param caller       the directory the command was run in and the command itself — the two facts that
+ *                     turn "some tool wants to write to a spreadsheet" into a question with an answer.
+ *                     Shown, never acted on: see {@link CallerInfo}.
  */
 public record ApprovalAsk(
         String requestId,
@@ -29,7 +32,7 @@ public record ApprovalAsk(
         String resourceKind,
         Tier tier,
         int itemCount,
-        String peerCommand,
+        CallerInfo caller,
         long pid,
         String session,
         boolean requiresPassphrase) {
@@ -37,5 +40,10 @@ public record ApprovalAsk(
     public String headline() {
         var what = itemCount > 1 ? operation + " " + itemCount + " items" : operation;
         return appName + " wants to " + what;
+    }
+
+    /** Never null, so the dialog and the audit read the same thing whatever an old client sent. */
+    public CallerInfo callerOrUnknown() {
+        return CallerInfo.orUnknown(caller);
     }
 }

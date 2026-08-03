@@ -75,7 +75,32 @@ import static luvjfx.Fx.vbox;
  */
 public final class ApprovalWindow {
 
-    private static final String RED = "#b71c1c", AMBER = "#e65100", GREEN = "#1b5e20", WARN = "#8d6e00";
+    /*
+     * Every colour here is checked against the surface it is actually drawn on, which is not white.
+     *
+     * The tier hues stay what they were — colour is judged before any word is read and green/amber/red is
+     * the right three. What was wrong was the LIGHTNESS, in both places it mattered. White on the old
+     * #e65100 band is 3.8:1, under the 4.5:1 that ordinary text needs, so the one line whose whole job is
+     * to say IRREVERSIBLE or CHANGE at a glance was the least readable thing on the window. And the greys
+     * carried over from a white-background dialog — #999, #888, #777 — sit at 2.7:1 to 4.2:1 on a tinted
+     * one, which is why explanatory text read as white-on-orange rather than as text.
+     *
+     * So: AMBER is deepened until white clears 5:1 on it, and the grey ladder is replaced by two warm
+     * inks that clear 4.5:1 on ALL THREE tints. Measured against the worst of the three in each case,
+     * never against white.
+     */
+    private static final String
+            RED = "#b71c1c",        // white on it 6.6:1 · as text on its tint 5.7:1
+            AMBER = "#bf4b00",      // white on it 5.0:1 · as text on its tint 4.6:1
+            GREEN = "#1b5e20",      // white on it 8.0:1 · as text on its tint 9.6:1
+            WARN = "#7d6100",       // 5.4:1 — the colour of "this is not what you think it is"
+            MUTED = "#5b564f",      // 6.3:1 — the 11px explanatory text, which is most of this window
+            FAINT = "#6e6960";      // 4.7:1 — the 10px command line and the countdown, and no fainter
+
+    /** The two secondary text styles, pre-mixed, because between them they are most of this window. */
+    private static final String
+            NOTE = "-fx-font-size: 11px; -fx-text-fill: " + MUTED + ";",
+            ASIDE = "-fx-font-size: 10px; -fx-text-fill: " + FAINT + ";";
 
     /**
      * How long the window ignores the keyboard after appearing.
@@ -107,6 +132,17 @@ public final class ApprovalWindow {
 
     /** Fixed, because the wrapped-text measurement needs the width it will actually be laid out at. */
     private static final int WIDTH = 660;
+
+    /**
+     * The tallest the command line is allowed to be: about three lines, then it scrolls.
+     *
+     * <p>A {@code maxHeight} and deliberately not a {@code prefViewportHeight}. {@code VBox} clamps each
+     * child's preferred height between its min and its max, so a max lets a one-line command occupy one
+     * line while a page-long one stops here — which is what keeps {@link Ui#fitToContent} exact. A
+     * preferred viewport height would reserve three lines for every command, which is the dead space this
+     * window was rebuilt to get rid of.
+     */
+    private static final int COMMAND_MAX_H = 74;
 
     private ApprovalWindow() {
     }
@@ -302,14 +338,21 @@ public final class ApprovalWindow {
 
         // Nothing is grantable until the passphrase proves a person is here. A click can be synthesised
         // by anything running as this user; a passphrase cannot.
-        Runnable applyGate = () -> {
-            var open = !locked;
-            for (var c : choices) ((Button) c.node).setDisable(!open);
+        //
+        // Modena expresses "disabled" as 40% opacity and nothing else, which on the pale red tint of the
+        // irreversible tier leaves the span buttons at roughly 2:1 against their background — unreadable,
+        // on the one tier where knowing what you are about to enable matters most. 62% still reads as
+        // inactive and can still be read.
+        Consumer<Boolean> gate = open -> {
+            for (var c : choices) {
+                ((Button) c.node).setDisable(!open);
+                c.node.setStyle(open ? "" : "-fx-opacity: 0.62;");
+            }
             ((TextField) custom.node).setDisable(!open);
             // Widening is a grant like any other, so it sits behind the same passphrase.
             ((javafx.scene.control.CheckBox) wide.node).setDisable(!open);
         };
-        applyGate.run();
+        gate.accept(!locked);
 
         phrase.attr(f -> {
             f.setPromptText("wallet passphrase, then Enter");
@@ -329,9 +372,7 @@ public final class ApprovalWindow {
                     f.setDisable(true);
                     gateNote.text("Confirmed. Choose how long this stands.");
                     gateNote.style("-fx-font-size: 11px; -fx-text-fill: " + GREEN + ";");
-                    for (var c : choices) ((Button) c.node).setDisable(false);
-                    ((TextField) custom.node).setDisable(false);
-                    ((javafx.scene.control.CheckBox) wide.node).setDisable(false);
+                    gate.accept(true);
                     settleUntil.set(System.currentTimeMillis() + SETTLE_MS);
                     ((Button) choices.getFirst().node).requestFocus();
                 } finally {
@@ -386,8 +427,8 @@ public final class ApprovalWindow {
                         ? "request code — it identifies which command is asking. NOT what goes in the box below."
                         : "request code — identifies which command is asking, and typing it is what widens"
                           + " the answer")
-                        .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: "
-                        + (locked ? WARN : "#666") + ";"),
+                        .wrapText(true).style(locked
+                        ? "-fx-font-size: 11px; -fx-text-fill: " + WARN + ";" : NOTE),
                 label(ask.headline()).style("-fx-font-size: 16px; -fx-font-weight: bold;").wrapText(true),
 
                 label(blanket ? "EVERY document, present and future"
@@ -397,14 +438,14 @@ public final class ApprovalWindow {
                 label(blanket ? text(ask.resourceKind())
                                 : text(ask.resourceKind()) + "  ·  " + text(ask.resource().id()))
                         .style("-fx-font-size: 11px; -fx-font-family: 'Consolas'; -fx-text-fill: "
-                                + (unresolved || blanket ? WARN : "#888") + ";").wrapText(true),
+                                + (unresolved || blanket ? WARN : MUTED) + ";").wrapText(true),
 
                 label("account: " + text(ask.account()) + "    profile: " + text(ask.profile())
-                        + "    pid: " + ask.pid()).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
-                label("session: " + text(ask.session())).style("-fx-font-size: 11px; -fx-text-fill: #666;")
-                        .wrapText(true),
-                label(text(ask.peerCommand())).wrapText(true).style("-fx-font-size: 10px; -fx-text-fill: #999;"),
-                separator());
+                        + "    pid: " + ask.pid()).style(NOTE),
+                label("session: " + text(ask.session())).style(NOTE)
+                        .wrapText(true));
+
+        content.nodes(caller(ask), separator());
 
         if (locked) {
             content.nodes(
@@ -417,7 +458,7 @@ public final class ApprovalWindow {
                     // right. The field's own prompt text says "passphrase" but disappears the moment a
                     // character is typed, which is exactly when someone realises they are unsure.
                     label("Type the WALLET PASSPHRASE — the one that unlocks this wallet. Not the code above.")
-                            .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                            .wrapText(true).style(NOTE),
                     hbox().spacing(8).nodes(phrase),
                     gateNote.wrapText(true));
         }
@@ -435,10 +476,10 @@ public final class ApprovalWindow {
                 wide.style("-fx-font-weight: bold;"),
                 (wanted == null
                         ? label("Enabled by the passphrase above.")
-                                .style("-fx-font-size: 11px; -fx-text-fill: #666;")
+                                .style(NOTE)
                         : hbox().spacing(8).nodes(
                                 label("To turn it on, type the code " + wanted + " :")
-                                        .style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                                        .style(NOTE),
                                 codeEntry.style("-fx-font-family: monospace; -fx-font-size: 13px;"))),
                 label("Off: this answer covers this one item — almost always what you want. On: it covers"
                         + " everything this command touches, for one action that spans many files (a folder"
@@ -447,14 +488,16 @@ public final class ApprovalWindow {
                         + (ask.session() == null || ask.session().isBlank() ? "this run" : ask.session())
                         + " — so it disappears when the command ends"
                         + (danger ? ", and still stops at " + settings.destructiveOps + " operations." : "."))
-                        .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                        .wrapText(true).style(NOTE),
                 // The answer to "stop asking me" is not on this window, and leaving that unsaid is what
-                // turned one question into six. Breadth here cannot outlive the command by design; a
-                // grant that spans commands is a deliberate act with the passphrase in front of it.
-                label("To stop being asked across many commands, this window is the wrong place:"
-                        + " uskoag-walletcli policy quiet --tier read (or write). That grants once, for"
-                        + " the tier's ceiling, and shows in policy list where you can revoke it.")
-                        .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"));
+                // turned one question into six. It is deliberately not a button here either: a way out of
+                // being interrupted, offered at the moment of the interruption, is how a bounded decision
+                // becomes a reflex. Breadth here cannot outlive the command by design; a grant that spans
+                // commands is a thing you go and do on purpose, with the passphrase in front of it.
+                label("To stop being asked across many commands: the tray icon → \"Open access for a"
+                        + " while…\", or uskoag-walletcli policy quiet --tier read (or write). Both want the"
+                        + " passphrase, both expire, and both show in policy list where you can revoke them.")
+                        .wrapText(true).style(NOTE));
 
         content.nodes(
                 separator(),
@@ -470,10 +513,13 @@ public final class ApprovalWindow {
                 // named had already been deliberately disconnected: nothing here is focusable, so Tab
                 // moves nothing and Enter takes nothing. A status bar that names keys which do nothing
                 // teaches the wrong reflex on the one window where the reflex matters.
+                // wrapText, because it did not fit and was being cut at "…remembers not…". A line whose
+                // whole job is to teach the keys was ending in an ellipsis on the one window where the
+                // keys are the entire interface. Costs a second line only when the width demands it.
                 label("Every answer is one function key, pressed twice   ·   Esc arms a denial"
                         + "   ·   F4 F4 (\"Once\") allows just this call and remembers nothing")
-                        .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
-                closing.style("-fx-font-size: 10px; -fx-text-fill: #999;"));
+                        .wrapText(true).style(NOTE),
+                closing.style(ASIDE));
 
         var root = vbox().nodes(band, content)
                 .style(Ui.INK + " -fx-background-color: " + tint(ask.tier()) + ";");
@@ -481,31 +527,25 @@ public final class ApprovalWindow {
         deny.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.deny())));
 
         /*
-         * Sized to its content, then clamped to the screen. Not a hard-coded height.
+         * Sized to its content, then clamped to the screen. Not a hard-coded height, and not scrolling.
          *
          * Two fixed numbers were carried here for the same reason and both were wrong in both directions.
          * Too small and a control falls off the bottom invisibly — that happened to the breadth checkbox and
          * cost 31 approvals answered one at a time by someone who never saw it. So the numbers were raised;
          * now the tiers that show fewer lines (a blanket grant has no checkbox, no hint and no code) open
-         * with a large empty panel, and the tallest tier can run past the bottom of the screen. A constant
-         * cannot be right for a window whose content varies by tier, by whether a name resolved, and by how
-         * long a document's title is.
+         * with a large empty panel. A constant cannot be right for a window whose content varies by tier, by
+         * whether a name resolved, and by how long a document's title is.
          *
-         * So: measure the content at the real width, use that, and never exceed the usable screen. The
-         * scroll pane is the safety net for the clamp case only — it is reachable content rather than
-         * clipped content, which is the lesser evil, and in the ordinary case it never appears because the
-         * window is exactly as tall as it needs to be.
+         * Ui.fitToContent owns all of it now, including the scroll pane and whether its bar is ever shown —
+         * it is not, on any tier, on any ordinary screen. See the note there for why the first attempt at
+         * measuring came out short and scrolled anyway.
          */
-        var scroller = new javafx.scene.control.ScrollPane(root.node);
-        scroller.setFitToWidth(true);
-        scroller.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
-        scroller.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        scroller.setStyle("-fx-background: transparent; -fx-background-color: transparent;"
-                + " -fx-padding: 0; -fx-background-insets: 0;");
         // Constructed directly rather than through Fx.scene, which takes a luvjfx wrapper; the helper is
         // exactly `new Scene(root.node(), w, h)`, so nothing is lost. The height here is provisional and is
-        // replaced by the measurement below.
-        var sc = new javafx.scene.Scene(scroller, WIDTH, 400);
+        // replaced by the measurement below. The fill matches the tier tint so that a frame in which the
+        // content has not yet caught up with the window shows the window's own colour, not white.
+        var sc = new javafx.scene.Scene(root.node, WIDTH, 400);
+        sc.setFill(javafx.scene.paint.Color.web(tint(ask.tier())));
 
         // Keystrokes already in flight when the window appeared are not answers to a question nobody
         // had read yet. This window raises itself over whatever someone is doing, so the keys arriving
@@ -618,7 +658,7 @@ public final class ApprovalWindow {
             /*
              * The passphrase gate has to hold against the KEYBOARD too, and it did not.
              *
-             * applyGate() implements the gate as setDisable(true) on every granting button, which stops the
+             * gate() implements the gate as setDisable(true) on every granting button, which stops the
              * mouse and stops the button's own key handling. It does not stop this filter, which calls the
              * action's Runnable DIRECTLY — the lambda, not the button. So on the irreversible tier F4 F4 or
              * F6 F6 answered the dialog with the passphrase box still empty, and the one control here that
@@ -678,7 +718,7 @@ public final class ApprovalWindow {
         stage.setOnCloseRequest(e -> answer.accept(ApprovalAnswer.deny()));
         stage.setScene(sc);
 
-        Ui.fitToContent(stage, root.node, WIDTH);
+        Ui.fitToContent(stage, root.node, WIDTH, tint(ask.tier()));
 
         Ui.toFront(stage);
         // Focus goes to the passphrase box when there is one — he asked for that, and a stray key there
@@ -726,6 +766,90 @@ public final class ApprovalWindow {
             if (t != null && t.startsWith(prefix)) return t.substring(prefix.length());
         }
         return "approve";
+    }
+
+    /**
+     * Where the command was run, and what the command was. The two rows he asked for, and the reason is
+     * his: <i>"running in which directory — so I know which project, this single thing makes approval
+     * easy"</i>, and, of the command, <i>"if you see the command even I can tell what is being
+     * planned/executed"</i> — the alternative being to elevate the restriction on a batch merely because
+     * it could not be seen.
+     *
+     * <p>The directory is the prominent one and is the only line here in ordinary ink rather than as an
+     * aside, because it is the fact the decision is actually made on. The command sits in its own scroll
+     * pane because a real batch invocation is longer than this window is wide, and it is height-bounded so
+     * that a long one costs three lines rather than a screenful — see {@link #COMMAND_MAX_H}.
+     *
+     * <p>Nothing in here is focusable, which is not a detail: this window's whole keyboard design rests on
+     * there being nothing for Enter, Space or Tab to reach.
+     */
+    private static luvjfx.FxVBox caller(ApprovalAsk ask) {
+        var c = ask.callerOrUnknown();
+        var box = vbox().spacing(4);
+
+        box.nodes(label(c.workingDir() == null ? "directory not stated" : "in  " + c.workingDir())
+                .wrapText(false)
+                .attr(l -> l.setTextOverrun(javafx.scene.control.OverrunStyle.LEADING_ELLIPSIS))
+                .style("-fx-font-size: 12px; -fx-font-family: 'Consolas';"
+                        + (c.workingDir() == null ? " -fx-text-fill: " + WARN + ";" : "")));
+
+        var line = label(c.commandLine() == null ? "command not stated" : c.commandLine())
+                .wrapText(true)
+                .style("-fx-font-size: 11px; -fx-font-family: 'Consolas'; -fx-padding: 4 6 4 6;"
+                        + " -fx-text-fill: " + (c.commandLine() == null ? WARN : MUTED) + ";");
+
+        // A white inset so the command reads as a quoted thing rather than as more prose, and `-fx-background`
+        // named explicitly rather than left transparent — Modena's ladder() derives the default text colour
+        // from it, and `transparent` reads as black and turns every unstyled descendant white. That cost a
+        // whole dialog's legibility once already; see Ui.fitToContent.
+        var scroller = new javafx.scene.control.ScrollPane(line.node);
+        scroller.setFitToWidth(true);
+        scroller.setFocusTraversable(false);
+        scroller.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+        scroller.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroller.setMaxHeight(COMMAND_MAX_H);
+
+        /*
+         * The height is driven off the label's REAL laid-out height, and a maxHeight alone was not enough.
+         *
+         * A ScrollPane derives its preferred height from its content's preferred height, and a wrapped
+         * Label asked for its preferred height reports the height of ONE line — the wrap only happens once
+         * something has fixed its width, which here is fitToWidth at layout time. So the box came out two
+         * lines tall with a scroll bar for a command that had four lines and room for all of them, while
+         * maxHeight sat well above and never applied to anything. Measured, not reasoned: the preview
+         * harness photographed exactly that.
+         *
+         * heightProperty is the answer because it is the only number in this that has been through a
+         * layout pass. It converges in one step and cannot flap: a bar appearing narrows the viewport,
+         * which can only make the text taller, which can only keep the bar.
+         */
+        line.node.heightProperty().addListener((o, was, now) ->
+                scroller.setPrefHeight(Math.min(now.doubleValue() + 2, COMMAND_MAX_H)));
+        scroller.setStyle("-fx-background: #ffffff; -fx-background-color: #ffffff;"
+                + " -fx-padding: 0; -fx-background-insets: 0;"
+                + " -fx-border-color: #e2dccf; -fx-border-width: 1;");
+        box.add(scroller);
+
+        /*
+         * An undeclared caller is TOLD ON, not squeezed. His ruling, and it is the right one.
+         *
+         * Restricting one would look like a security control and would not be one: the declaration is
+         * self-reported and unverifiable — the same objection that ended the per-tool contract idea in
+         * session 05 — so anything that wanted a wider grant would simply declare a plausible command and
+         * get it. What would be left is friction applied to honest tools only, plus a belief that the
+         * wallet can tell callers apart. It cannot. This line exists so a person can judge, which is the
+         * only thing the facts above are good for.
+         */
+        if (!c.declared()) {
+            box.nodes(label(c.commandLine() == null
+                    ? "This caller did not say what it is running. Nothing is being withheld from it on that"
+                      + " account — the wallet cannot verify such a claim anyway — but there is less here to"
+                      + " judge it by than usual."
+                    : "This caller did not state its command; the line above was recovered from the JVM and"
+                      + " may be partial.")
+                    .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: " + WARN + ";"));
+        }
+        return box;
     }
 
     private static Match breadth(luvjfx.FxCheckBox wide) {

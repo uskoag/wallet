@@ -15,9 +15,11 @@ import java.util.Map;
  * The audit log, which is confidential material in its own right.
  *
  * <p>Timestamp, tool, operation, tier, verdict and counts stay in the clear so anomaly queries work
- * offline — "how many deletions in the last hour", "which tool is busiest". The target path, file name
- * and peer command line are encrypted per column, because that set is a map of what this office is
- * working on: a stolen token gets revoked, a list of matters and counterparties cannot be un-disclosed.
+ * offline — "how many deletions in the last hour", "which tool is busiest". The target path, file name,
+ * peer command line and working directory are encrypted per column, because that set is a map of what
+ * this office is working on: a stolen token gets revoked, a list of matters and counterparties cannot be
+ * un-disclosed. The directory belongs in that set for the same reason the file name does, and arguably
+ * more — a path is often the matter's name.
  *
  * <p>The column key lives in the keyring, so changing the wallet passphrase never re-encrypts history.
  * The cost, stated plainly: lose the passphrase and the detail columns go with it.
@@ -62,6 +64,7 @@ public final class Audit {
                 d.set("pid", e.pid());
                 d.set("target", seal(e.target()));
                 d.set("peer", seal(e.peer()));
+                d.set("dir", seal(e.dir()));
                 d.save();
             });
         } catch (Exception ignored) {
@@ -78,6 +81,9 @@ public final class Audit {
                 var m = new java.util.LinkedHashMap<>(rs.next().toMap());
                 m.put("target", open(String.valueOf(m.get("target"))));
                 m.put("peer", open(String.valueOf(m.get("peer"))));
+                // Absent on every row written before this column existed, and null is the honest value
+                // for it. "Not recorded" is a different thing from "run from nowhere".
+                m.put("dir", m.containsKey("dir") ? open(String.valueOf(m.get("dir"))) : null);
                 out.add(m);
             }
         } catch (Exception ignored) {

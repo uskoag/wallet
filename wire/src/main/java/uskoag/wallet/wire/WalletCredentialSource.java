@@ -98,9 +98,13 @@ public final class WalletCredentialSource implements CredentialSource {
 
     private static AccessGrant request(WalletClient client, AccessSpec spec) throws IOException {
         try {
+            // Read per request rather than once, because in a resident daemon the answer is different for
+            // each one: uskoag.gservices.Caller scopes the forwarded invocation to the serving thread.
+            var f = uskoag.gservices.Caller.current();
             return client.access(new AccessRequest(
                     spec.api(), spec.profile(), spec.appName(), spec.account(), spec.scopes(),
-                    SessionId.current(), ProcessHandle.current().pid(), SessionId.peerCommand()));
+                    SessionId.current(), ProcessHandle.current().pid(),
+                    new CallerInfo(f.workingDir(), f.commandLine(), f.declared())));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("interrupted while asking the wallet for access", e);

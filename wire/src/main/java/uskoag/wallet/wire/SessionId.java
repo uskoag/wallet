@@ -76,12 +76,15 @@ public final class SessionId {
         }
     }
 
-    /** For the audit and the wording of the approval dialog. Never for authorization. */
-    public static String peerCommand() {
-        try {
-            return ProcessHandle.current().info().commandLine().orElse("(unknown)");
-        } catch (Exception e) {
-            return "(unknown)";
-        }
-    }
+    /*
+     * There was a peerCommand() here and it never once worked.
+     *
+     * It returned ProcessHandle.current().info().commandLine(), which on Windows is empty for a process's
+     * own argv — arguments() is null and commandLine() is absent, measured on JDK 25 — so it fell through
+     * to its "(unknown)" default on every call this project has ever made. The approval dialog printed
+     * that string for six sessions and it read as a quirk of the display rather than as a fact nobody had.
+     *
+     * Windows will not tell us, so the caller does: uskoag.gservices.Caller, recorded from the tool's own
+     * main(String[] args). Nothing here should try to infer it again.
+     */
 }

@@ -55,6 +55,17 @@
             <version>${javafx.ver}</version>
             <classifier>win</classifier>
         </dependency>
+
+        <!-- Test only, and only for SwingFXUtils: ApprovalPreview renders every shape of the approval
+             dialog to a PNG so its size and contrast can be checked by looking rather than by asking
+             somebody to trigger a real approval. Nothing in the app touches Swing. -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-swing</artifactId>
+            <version>${javafx.ver}</version>
+            <classifier>win</classifier>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
