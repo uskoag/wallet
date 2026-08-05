@@ -60,9 +60,9 @@ public final class OpenAccessWindow {
      * discovered afterwards. Offering the maximum first would make the maximum the habit.
      */
     private static final List<Integer> READ_SPANS = List.of(60, 240, 720, 1440);
-    private static final List<Integer> WRITE_SPANS = List.of(15, 30, 60);
+    private static final List<Integer> WRITE_SPANS = List.of(30, 60, 120, 240);
 
-    private static final int READ_DEFAULT = 240, WRITE_DEFAULT = 30;
+    private static final int READ_DEFAULT = 240, WRITE_DEFAULT = 60;
 
     /** One at a time, like the unlock prompt, so a double tray click does not stack two of these. */
     private static Stage open;

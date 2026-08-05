@@ -111,7 +111,7 @@ public final class PolicyVerbs {
      * {@code policy list}, and is revocable by id like anything else.
      *
      * <p>Three things bound it. The <b>blanket</b> ceiling, which is shorter than the ordinary tier ceiling
-     * and deliberately so — {@code Tier.blanketMaxMinutes}, a day to read anything and an hour to change
+     * and deliberately so — {@code Tier.blanketMaxMinutes}, a day to read anything and four hours to change
      * anything, against a week and a day for a rule about one named document. The passphrase, because
      * breadth is where the blast radius is and a click can be synthesised by
      * anything running as this user. And the refusal below: DESTRUCTIVE can never be blanket, because

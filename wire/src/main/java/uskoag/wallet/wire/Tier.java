@@ -12,7 +12,7 @@ public enum Tier {
     READ(60 * 24 * 7, 60 * 24),
 
     /** create, update, append, draft, add. Silent while unlocked, logged, rate-limited. */
-    MUTATE(60 * 24, 60),
+    MUTATE(60 * 24, 60 * 4),
 
     /** delete, trash, move, re-parent, clear a large range, every permission change. Prompted and budgeted. */
     DESTRUCTIVE(60, 0);
@@ -34,8 +34,14 @@ public enum Tier {
     public final int maxMinutes;
 
     /**
-     * The longest a rule covering EVERY document may stand — a day to read anything, an hour to change
+     * The longest a rule covering EVERY document may stand — a day to read anything, four hours to change
      * anything, and no such thing at all for the irreversible tier.
+     *
+     * <p>Write was one hour and he raised it to four on 2026-08-04, for an unattended run. That is his
+     * call and the trade is worth stating rather than burying: four hours is longer than anybody watches,
+     * so for most of such a window the only thing standing between a poisoned document and everything
+     * these accounts can write is the audit, read afterwards. The irreversible tier is untouched, which is
+     * what keeps the blast radius to "wrong content" rather than "gone".
      *
      * <p>Tighter than {@link #maxMinutes} because it is a different object. A per-document rule is bounded
      * by the document: the worst it can do is the worst that can be done to one file somebody looked at and
