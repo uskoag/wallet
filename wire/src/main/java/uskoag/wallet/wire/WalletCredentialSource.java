@@ -76,6 +76,29 @@ public final class WalletCredentialSource implements CredentialSource {
         }
     }
 
+    /**
+     * The accounts the keyring holds, asked without unlocking anything.
+     *
+     * <p>Empty when the wallet is not running or is locked, which is the contract: a locked wallet
+     * answers the {@code accounts} verb with a refusal object rather than the array, so the parse fails
+     * and the caller is told "cannot say" instead of "none". {@link #ready()} is how a caller tells
+     * those apart.
+     */
+    @Override
+    public java.util.List<String> accounts() {
+        return WalletClient.ifRunning().map(client -> {
+            try {
+                return java.util.Arrays.stream(client.call("accounts", java.util.Map.of(), AccountInfo[].class))
+                        .map(AccountInfo::email)
+                        .filter(e -> e != null && !e.isBlank())
+                        .sorted()
+                        .toList();
+            } catch (Exception e) {
+                return java.util.List.<String>of();
+            }
+        }).orElse(java.util.List.of());
+    }
+
     @Override
     public ServiceAccess access(AccessSpec spec) throws IOException {
         var client = WalletLauncher.ensureRunning().orElseThrow(() -> new IOException(
@@ -104,7 +127,7 @@ public final class WalletCredentialSource implements CredentialSource {
             return client.access(new AccessRequest(
                     spec.api(), spec.profile(), spec.appName(), spec.account(), spec.scopes(),
                     SessionId.current(), ProcessHandle.current().pid(),
-                    new CallerInfo(f.workingDir(), f.commandLine(), f.declared())));
+                    new CallerInfo(f.workingDir(), f.commandLine(), f.declared()), SessionId.sourcePid()));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("interrupted while asking the wallet for access", e);
@@ -116,6 +139,12 @@ public final class WalletCredentialSource implements CredentialSource {
      * delete 340 files", the question of which one is answerable.
      */
     private static void announce(AccessGrant grant) {
+        // A warning is printed whether or not the caller asked for quiet. UKAG_WALLET_QUIET suppresses a
+        // routine line nobody needs; this one says something is misreporting itself, and a run that
+        // silenced its own diagnostics is exactly the run that will never find out.
+        if (grant.warning() != null && !grant.warning().isBlank()) {
+            System.err.println("wallet: " + grant.warning());
+        }
         if (System.getenv("UKAG_WALLET_QUIET") != null) return;
         System.err.println("wallet approval code: " + grant.correlationCode() + "  (" + grant.account() + ")");
     }
