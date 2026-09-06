@@ -219,17 +219,41 @@ public final class Keyring {
     /**
      * Is this the passphrase this wallet is unlocked with?
      *
-     * <p>Used to re-ask before an irreversible operation. Compared against the copy already in memory
-     * rather than by re-deriving the key, because the point is to prove a person is present, not to
-     * re-open the keyring — and re-deriving would be a slow KDF run on the request path for no gain.
-     * Byte-wise constant time, so a wrong answer leaks nothing about how much of it was right.
+     * <p>Used to re-ask before an irreversible operation, and before the tray's open-access window issues
+     * the widest grant the wallet can make. Compared against the copy already in memory rather than by
+     * re-deriving the key, because the point is to prove a person is present, not to re-open the keyring —
+     * and re-deriving would be a slow KDF run on the request path for no gain. Byte-wise constant time, so
+     * a wrong answer leaks nothing about how much of it was right.
+     *
+     * <p><b>As typed or folded, exactly like {@link #unlock}.</b> Every keyring created or re-keyed since
+     * passphrases became letters-only is sealed under {@link #normalise}, so the copy sitting in memory is
+     * the folded form — upper case, letters only — whatever was actually typed to open it. Comparing the
+     * typed passphrase against that on the nose refused the real passphrase and accepted only a string the
+     * wallet has never shown anybody, which left both windows that re-ask impassable: the two boxes agreed,
+     * the passphrase was right, and it kept answering that it was not.
+     *
+     * <p>Folded against the STORED value, never fold against fold. The latter is a different and worse
+     * rule: a keyring predating normalisation may be sealed with digits or punctuation in it, and its
+     * folded form is shorter than the secret — comparing two of those would admit passphrases that differ
+     * everywhere except the letters.
      */
     public synchronized boolean verify(char[] phrase) {
         if (data == null || passphrase == null || phrase == null) return false;
-        var mine = utf8(passphrase);
-        var theirs = utf8(phrase);
+        if (same(passphrase, phrase)) return true;
+        var folded = normalise(phrase);
         try {
-            return java.security.MessageDigest.isEqual(mine, theirs);
+            return same(passphrase, folded);
+        } finally {
+            Arrays.fill(folded, '\0');
+        }
+    }
+
+    /** Constant time, so a near miss is indistinguishable from a wild guess. */
+    private static boolean same(char[] a, char[] b) {
+        var mine = utf8(a);
+        var theirs = utf8(b);
+        try {
+            return MessageDigest.isEqual(mine, theirs);
         } finally {
             Arrays.fill(mine, (byte) 0);
             Arrays.fill(theirs, (byte) 0);
