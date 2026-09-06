@@ -72,6 +72,29 @@ public final class Asks {
     public record Recent(int limit) {
     }
 
+    /**
+     * Run the readonly health ping now. {@code account} and {@code group} narrow it to one credential;
+     * both blank means every credential in the keyring.
+     *
+     * <p>{@code force} runs even when the daily slot is not due, which is what a person asking by hand
+     * always means.
+     */
+    public record CheckHealth(String account, String group, boolean force) {
+
+        public static CheckHealth all() {
+            return new CheckHealth(null, null, true);
+        }
+    }
+
+    /**
+     * Consent again for a credential Google has stopped honouring.
+     *
+     * <p>A blank {@code group} re-consents every credential on the account that is not healthy, which is
+     * the usual case: what dies is a client's whole set of tokens on the same day, not one of them.
+     */
+    public record Reauth(String account, String group, int port) {
+    }
+
     public record Done(boolean ok, String message) {
 
         public static Done yes(String message) {

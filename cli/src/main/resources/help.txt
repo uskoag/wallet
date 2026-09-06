@@ -34,22 +34,44 @@ they then make is classified and policed where the request actually is.
                                     credential behind a loud warning and an audit entry
   forget <email>                    remove an account from the keyring
 
-  policy list                       the standing permissions
+  policy list [--tier write] [--api sheets] [--account e] [--resource <text>] [--blanket]
+              [--all] [--expand] [--tsv] [--json]
+                                    the standing permissions, one line each, widest first - because this
+                                    is read to decide what to revoke and a blanket rule buried between two
+                                    named documents is the thing you most needed to see. Rules of identical
+                                    scope are collapsed with an xN count: a session id derived from process
+                                    ancestry changes per invocation, so one document routinely holds five or
+                                    seven rules that differ in nothing else. The id shown is the one that
+                                    outlives the rest, so --expand is what you want to revoke a whole
+                                    collapsed scope. Expired and spent rules are counted but not listed;
+                                    --all shows them and says which of the two deaths it was, because one
+                                    wants policy extend and the other wants a fresh grant
+                                    --resource matches a substring of the id OR the label, since nobody
+                                    types a full Drive id. --tier write includes destructive, the same way
+                                    MUTATE outranks READ everywhere else. --json is the untouched reply
   policy check --api sheets --resource <id> --tier read [--profile p] [--account e]
                                     would this be allowed right now, without doing it
   policy allow --api sheets --resource <id> --tier write [--minutes 60] [--ops 50] [--match exact]
                                     ask for a standing rule; raises the same dialog a first touch
                                     would have raised, because a process must not grant itself one
-  policy quiet --tier read|write [--account e] [--api sheets] [--minutes N]
+  policy quiet --tier read|write [--account e] [--api sheets] [--minutes N] [--this-run]
                                     STOP ASKING ME. One rule covering every document at that tier,
-                                    until the tier's ceiling - a week to read, a day to write - and
+                                    until the BLANKET ceiling, which is shorter than the per-document
+                                    one - 24 hours to read anything, 4 hours to change anything - and
                                     --tier write covers read too, so heavy automation needs one of
                                     these and not two. Asks for the passphrase, because this covers
                                     documents nobody has named. Shows in policy list and is revoked
                                     by id like anything else, which is what makes it different from
                                     readRequiresRule=false in the Settings tab: that has no expiry
                                     at all, appears in no listing, and leaves nothing to revoke.
-                                    There is no blanket irreversible tier and there will not be
+                                    There is no blanket irreversible tier and there will not be.
+                                    --this-run pins the rule to the process this run of work belongs
+                                    to - the agent or the terminal, which the wallet establishes from
+                                    the kernel rather than being told. The rule then dies when that
+                                    process does instead of standing on a clock, so it cannot be
+                                    inherited by whatever runs next. Strictly narrower than the same
+                                    rule without it, and it is the honest way to say "across every
+                                    document and every account, for as long as this run lasts"
   policy extend <ruleId> --by 1w    push a rule's expiry out and refresh its operation count. Capped
                                     at the tier ceiling measured from now, so topping up repeatedly is
                                     not a way around it. Raises the dialog for the same reason allow
@@ -57,10 +79,74 @@ they then make is classified and policed where the request actually is.
   policy revoke <ruleId>            drop one rule
   policy clear                      drop them all
 
-  audit [--limit 100]               what was actually attempted, denials included
-  session                           which run of work this invocation presents itself as, where that
-                                    came from, and the process chain it was derived from. Needs no
-                                    wallet. Run it when you are being asked the same question twice
+  audit [--deny] [--verdict prompt] [--since 2h] [--tool gsheets] [--account e] [--api drive]
+        [--tier write] [--target <text>] [--dir <text>] [--limit 20] [--scan 500] [--expand] [--json]
+                                    what was actually attempted, denials included. --deny is the question
+                                    this log is usually opened for and it used to take reading a hundred
+                                    rows of JSON to ask. A filtered query reads the --scan most recent
+                                    events and SAYS SO, so "nothing matched" always arrives with the number
+                                    of events it was true of - an empty answer that did not state its reach
+                                    reads as "this never happened" when it means "not in the last twenty".
+                                    --expand adds the command and the directory it ran in, held back by
+                                    default because a command line is a hundred characters and none of it
+                                    can be elided
+  requests [--limit 20] [--expand] [--replay] [--save <dir>] [--json]
+                                    what the classifier last SAW, where audit says what it decided. The
+                                    method, the path, the query and the shape of the body, for the last
+                                    1000 requests. This is the log to open when a dialog said something
+                                    surprising: every defect found in this layer so far was a defect of
+                                    request shape, and each one had to be reconstructed with a bespoke
+                                    probe because nothing recorded it.
+                                    Bodies are stored as SKELETONS - object keys and array lengths kept,
+                                    because that is what the rules read; values replaced, because a layer
+                                    that promises not to retain document contents must not retain them in
+                                    its debug log either. A skeleton still classifies identically, so it
+                                    doubles as a fixture: --save writes them out as JSON you can replay
+                                    into a test without a wallet or a network.
+                                    --replay re-runs the rules over everything stored and reports what no
+                                    longer classifies as recorded. After a rule change that is a
+                                    regression caught against real traffic; with nothing changed it means
+                                    a rule has started reading a field the skeleton drops, and the fix is
+                                    a field name in Skeleton.KEEP. Exits 1 when anything mismatched.
+                                    UKAG_WALLET_CAPTURE=1 additionally stores bodies IN FULL, document
+                                    contents included. Off by default, says so loudly when on, and is the
+                                    one mode in which this process writes document contents to disk
+  session                           which run of work the WALLET thinks this is: the process it pinned
+                                    to, whether the kernel confirmed that process or the client merely
+                                    claimed it, the chain it walked, and how many standing rules are
+                                    bound to this run. Asked of the wallet, because only the wallet can
+                                    see any of it. Run it when you are being asked the same question
+                                    twice
+
+  health [list] [--tsv] [--json]    what the daily readonly check last found for every stored
+                                    credential: healthy, stale, scope withdrawn, OAuth client
+                                    rejected. Exits 1 when anything needs attention, so it belongs in
+                                    a morning check. Read out of the keyring, so the wallet must be
+                                    unlocked - it says so rather than answering with an empty list
+  health check [<email>] [--group g] run it NOW instead of waiting for the daily slot. Read-only, and
+                                    read-only is the whole design: the refresh token is exchanged,
+                                    which is the definitive test of whether the consent still exists,
+                                    then one cheap read is made per API the token's scopes cover.
+                                    Nothing is written anywhere at Google
+  health reauth <email> [--group g]  consent again for what has expired, with the SAME scopes the
+                                    stored token carried - a catalogue group re-consents with the
+                                    catalogue's scopes, a legacy or hand-written one with the exact set
+                                    it had. Nothing is widened. A blank --group takes every credential
+                                    on the account the check has found broken, which is the usual shape
+                                    of it: a client's whole set of tokens dies on the same day
+  health due                        is a check overdue, and is the wallet open enough to run one
+
+Why credentials expire, which is three different clocks and not one
+  A Cloud project still in TESTING publishing status expires every refresh token 7 days after issuing
+  it. Not on idleness - on age. No amount of checking prevents this; publishing the app does (Cloud
+  console, OAuth consent screen, Publish app). The wallet records how long credentials under each
+  client actually survive and says so on the Clients tab, because nothing in any Google API reports
+  the publishing status and the pattern of deaths is the only evidence there is.
+  A refresh token for a published app is revoked after 6 months of NON-USE. The daily check prevents
+  this outright, because the check is a use.
+  An OAuth CLIENT unused for 6 months is deleted by Google - credentials.json itself, not merely the
+  tokens minted from it, and that is the one thing here that consenting again cannot rebuild. The
+  daily check exercises the client too, since the token exchange carries its id and secret.
 
   backups                           plain credentials.json files left by earlier versions
   purgebackups                      delete them. The wallet keeps none now and sweeps these on
@@ -100,26 +186,36 @@ Running automation without being interrupted - READ THIS BEFORE A BATCH
 
     uskoag-walletcli policy check ...     will this be allowed? Ask before starting, not halfway
     uskoag-walletcli policy allow ...     pre-approve the specific documents you know you will touch
+    uskoag-walletcli policy quiet --tier write --this-run
+                                          stop asking me, for every document on every account, for as
+                                          long as this run lasts. Pinned to the process the run belongs
+                                          to, so it dies with the run rather than standing on a clock
     uskoag-walletcli policy quiet --tier write
-                                          stop asking me, for everything, for a day
+                                          the same without the pin, when the work must outlive the
+                                          process that set it up - 24h to read, 4h to write
 
-  The approval dialog's "apply to every item this command touches" checkbox is NOT how you stop being
-  asked across commands. It is bound to the session, so it covers one command however wide it is.
-  Ticking it repeatedly is how one spreadsheet produced six dialogs in two and a half minutes.
+  The approval dialog's "apply to every item this command touches" checkbox is bound to the session,
+  and a session is now a real thing: the wallet asks the kernel which process opened the connection and
+  walks up to the agent or terminal that owns the run. So one approval covers every command that
+  process makes, and it ends when that process ends. Nothing needs exporting for this to work.
 
-  UKAG_WALLET_SESSION is the other half, and it only matters for session-bound permissions - the
-  breadth checkbox and every irreversible grant. Export it once, before the first tool call, and every
-  invocation in that run presents the same session, so one approval covers the run:
+  It used to be derived in the client by walking to the outermost visible ancestor, which reached
+  explorer.exe - one session for an entire Windows login, so a grant described as covering "this one
+  command" quietly covered everything you were running. When it stopped earlier instead, it stopped on
+  a shell that died with the command, and the same spreadsheet was approved five times in two minutes.
+  Both were happening in the same keyring. Neither can happen now.
+
+  UKAG_WALLET_SESSION no longer decides identity. It is a NAME for the run, shown in the dialog and the
+  audit, and it is worth setting because "which run of work is this" is a question answered from words:
 
     $env:UKAG_WALLET_SESSION = "invoice reconciliation, March"      (PowerShell)
     export UKAG_WALLET_SESSION="invoice reconciliation, March"      (bash)
 
-  Words rather than a hex string: this is what the dialog and the audit show, and "which run of work is
-  this" is a question answered from words. It is a correlation key and never an authorisation
-  boundary - anything running as you can read or forge it, so nothing is trusted to it.
-
-  With nothing exported the session is DERIVED from process ancestry, and that is a best-effort guess
-  which fails in both directions - see the 'session' verb, which prints what you would get and why.
+  UKAG_WALLET_SOURCE_PID pins the run to a specific process in the chain, if the wallet's own choice is
+  not the one you want. It is the one thing a client says that the wallet acts on, and only because it
+  can check it: the wallet confirms the pid really is an ancestor of the calling process and discards it
+  otherwise, reporting the discrepancy to both the log and the caller's stderr. So it can move the
+  anchor within your own process tree and nowhere else. Run 'session' to see the chain and the pids.
 
 Notes
   Secrets are never flags. The passphrase and any old app-key are read from a hidden console prompt,
@@ -137,9 +233,19 @@ Notes
   while it is unlocked. A settings file beside the keyring would be one that anything running as you
   could edit, and one line of it turns the policy layer off.
 
-  How long a permission may stand is fixed and not settable: read 1 week, change 1 day, irreversible
-  1 hour. Nothing is ever granted without an expiry. Extending costs one click, which is what lets
+  How long a permission may stand is fixed and not settable. For a rule about ONE NAMED document:
+  read 1 week, change 1 day, irreversible 1 hour. For a rule that COVERS EVERY document - policy quiet,
+  the tray's "Open access for a while...", or the dialog's breadth checkbox - the ceiling is shorter,
+  and deliberately: a per-document rule is bounded by the document, a wide one has no bound but the
+  clock. 24 hours to read anything, 4 hours to change anything, and there is no blanket irreversible
+  tier at all. Nothing is ever granted without an expiry. Extending costs one click, which is what lets
   the ceilings be this short.
+
+  "Covers every document" is judged by what a rule matches, not by whether its resource field is empty.
+  A rule from the breadth checkbox matches everything while still carrying the id of the document that
+  was on screen when it was approved, and it used to be given the per-document ceiling because of that
+  - a permission over every spreadsheet on an account, standing for a week. It gets the wide ceiling
+  now, so those grants are a day rather than a week and you will notice the difference.
 
   The wallet keeps NO plain copy of any credentials.json. It used to, as a forgotten-passphrase safety
   net, and that put every OAuth client secret on disk in the clear - giving back half of what

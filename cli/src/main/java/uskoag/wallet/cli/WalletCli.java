@@ -39,10 +39,8 @@ public final class WalletCli {
             Help.print();
             return 0;
         }
-        // Before the client, deliberately: this answers a question about THIS process and needs no wallet,
-        // and the moment you most want it is when something is behaving oddly.
-        if ("session".equals(verb)) return session();
         var client = WalletClient.ifRunning().orElseGet(() -> WalletLauncher.ensureRunning().orElse(null));
+        if ("session".equals(verb)) return Session.run(client, a);
         if (client == null) {
             System.err.println("No wallet is running and none could be started.");
             System.err.println("Start uskoag-wallet, or set UKAG_WALLET_JAR to the shaded jar.");
@@ -57,7 +55,8 @@ public final class WalletCli {
             case "profiles" -> out(client.callRaw("profiles", Map.of()));
             case "groups" -> out(client.callRaw("groups", Map.of()));
             case "token", "tokens" -> TokenCommands.run(client, a);
-            case "audit" -> out(client.callRaw("audit", new Asks.Recent(a.num("limit", 100))));
+            case "audit" -> AuditList.run(client, a);
+            case "requests" -> RequestsList.run(client, a);
             case "lock" -> out(client.callRaw("lock", Map.of()));
             case "backups" -> out(client.callRaw("backups", Map.of()));
             case "purgebackups" -> out(client.callRaw("purgebackups", Map.of()));
@@ -70,77 +69,13 @@ public final class WalletCli {
             case "export" -> AccountCommands.export(client, a);
             case "forget" -> AccountCommands.forget(client, a);
             case "policy" -> PolicyCommands.run(client, a);
+            case "health" -> HealthCommands.run(client, a);
             default -> {
                 System.err.println("unknown verb: " + verb);
                 Help.print();
                 yield 1;
             }
         };
-    }
-
-    /**
-     * What session this invocation would present, and whether that is stable across invocations.
-     *
-     * <p>Exists because the instability was invisible and cost real time. A session-bound rule — which is
-     * what the approval dialog's breadth box and every irreversible grant produce — covers exactly the
-     * invocations that share a session, and when nothing exports one it is derived from process ancestry.
-     * That walk stops at the first parent the JDK cannot see, so whether it lands on a long-lived shell or
-     * on a process that dies with the command is a property of how the tool happened to be launched. Six
-     * identical approvals in two and a half minutes is what that looks like from the keyboard, and there
-     * was no way to see why short of reading the audit and comparing hex strings.
-     */
-    private static int session() {
-        var env = System.getenv(SessionId.ENV);
-        var explicit = env != null && !env.isBlank();
-        var id = SessionId.current();
-        System.out.println("session: " + id);
-        System.out.println("source : " + (explicit ? SessionId.ENV : "derived from process ancestry"));
-        if (explicit) {
-            System.out.println();
-            System.out.println("Stable. Every tool launched with this variable set presents the same session,");
-            System.out.println("so one approval covers the whole run.");
-            return 0;
-        }
-        System.out.println("ancestry: " + chain());
-        System.out.println();
-        System.out.println("Derived, so it is whatever that walk happened to reach, and it fails in BOTH");
-        System.out.println("directions. Stopping early gives a session that dies with this one command, so");
-        System.out.println("every session-bound permission — the breadth box, and every irreversible grant —");
-        System.out.println("is asked again next time. Reaching explorer.exe gives the opposite: one session");
-        System.out.println("shared by every process in this Windows login, so a grant said to end with the");
-        System.out.println("command actually stands until it expires. Neither is 'a run of work'.");
-        System.out.println();
-        System.out.println("To make it stable, export a name for the run before the first tool call:");
-        System.out.println("  PowerShell   $env:" + SessionId.ENV + " = \"invoice reconciliation, March\"");
-        System.out.println("  bash         export " + SessionId.ENV + "=\"invoice reconciliation, March\"");
-        System.out.println();
-        System.out.println("Words, not a hex string: this is what the approval dialog and the audit show,");
-        System.out.println("and it is a correlation key, never an authorisation boundary.");
-        System.out.println();
-        System.out.println("To stop being asked at all, that is a different question and the answer is");
-        System.out.println("  uskoag-walletcli policy quiet --tier write   (or the tray icon →");
-        System.out.println("  \"Open access for a while…\" — same grant, same ceiling, with a window)");
-        return 0;
-    }
-
-    /**
-     * The parent chain as names, which is the one thing that makes a derived session interpretable. Uses
-     * the same walk {@link SessionId#fromAncestry} does, so what is printed is what was keyed on.
-     */
-    private static String chain() {
-        var parts = new java.util.ArrayList<String>();
-        try {
-            for (var p = ProcessHandle.current(); ; ) {
-                parts.add(p.pid() + ":" + p.info().command()
-                        .map(c -> c.substring(c.replace('\\', '/').lastIndexOf('/') + 1)).orElse("?"));
-                var parent = p.parent();
-                if (parent.isEmpty() || parts.size() > 20) break;
-                p = parent.get();
-            }
-        } catch (Exception e) {
-            parts.add("(walk failed: " + e.getMessage() + ")");
-        }
-        return String.join(" <- ", parts);
     }
 
     private static int unlock(WalletClient client, Args a) throws Exception {

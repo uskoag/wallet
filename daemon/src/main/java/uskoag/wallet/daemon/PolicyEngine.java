@@ -91,13 +91,20 @@ public final class PolicyEngine {
         // is too, whatever its tier: the reason someone ticks that box is a batch they are watching, and
         // a permission covering everything must not outlive the command that asked for it and be
         // inherited by whatever runs next. It still expires and, on the irreversible tier, still counts.
-        r.session = tier == Tier.DESTRUCTIVE || r.match == Match.ANY ? session : null;
+        // Bound to the run in three cases, and the third is new. An irreversible grant has always been
+        // session-bound. A rule matching EVERY resource is too, whatever its tier: the reason someone
+        // widens a grant is a batch they are watching, and a permission covering everything must not
+        // outlive the command that asked for it. And now a blanket rule may be pinned deliberately —
+        // `policy quiet --this-run` — which is the only way to say "across documents and across accounts,
+        // for as long as this run lasts and not one minute longer". Passing no session still means
+        // unbound, so nothing that did not ask for pinning acquires it.
+        r.session = tier == Tier.DESTRUCTIVE || r.match == Match.ANY || r.resource == null ? session : null;
         r.tier = tier;
         r.opsBudget = answer.ops();
         // Blanket is read off the rule itself — no resource id means every resource — rather than taken
         // from whoever is asking. The tray's open-access window and `policy quiet` are two doors onto one
         // grant, and a ceiling either of them could state for itself is a ceiling neither of them enforces.
-        r.expiresAt = expiryFor(tier, answer.minutes(), r.resource == null);
+        r.expiresAt = expiryFor(tier, answer.minutes(), r.coversEverything());
         r.createdAt = System.currentTimeMillis();
         r.note = note;
         keyring.data().rules().add(r);
@@ -164,7 +171,7 @@ public final class PolicyEngine {
         var tier = rule.tier == null ? Tier.READ : rule.tier;
         // The blanket ceiling has to apply here too, and for the same reason the tier ceiling does: an
         // extension that used the wider number would be the documented way around the narrower one.
-        var cap = tier.ceiling(rule.resource == null);
+        var cap = tier.ceiling(rule.coversEverything());
         var ceiling = now + cap * 60_000L;
         var wanted = minutes <= 0 ? ceiling : Math.max(now, rule.expiresAt) + minutes * 60_000L;
         rule.expiresAt = Math.min(wanted, ceiling);

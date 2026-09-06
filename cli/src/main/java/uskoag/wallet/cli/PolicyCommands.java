@@ -1,6 +1,8 @@
 package uskoag.wallet.cli;
 
+import uskoag.wallet.wire.Json;
 import uskoag.wallet.wire.Match;
+import uskoag.wallet.wire.PolicyReply;
 import uskoag.wallet.wire.PolicyRequest;
 import uskoag.wallet.wire.Span;
 import uskoag.wallet.wire.Tier;
@@ -22,18 +24,47 @@ public final class PolicyCommands {
     public static int run(WalletClient client, Args a) throws Exception {
         var sub = a.at(1) == null ? "list" : a.at(1);
         return switch (sub) {
-            case "list" -> WalletCli.out(client.callRaw("policy.list", Map.of()));
-            case "clear" -> WalletCli.out(client.callRaw("policy.clear", Map.of()));
-            case "revoke" -> WalletCli.out(client.callRaw("policy.revoke", ask(a, a.at(2))));
-            case "check" -> WalletCli.out(client.callRaw("policy.check", ask(a, a.get("resource", a.at(2)))));
-            case "allow" -> WalletCli.out(client.callRaw("policy.allow", ask(a, a.get("resource", a.at(2)))));
+            case "list" -> PolicyList.run(client, a);
+            case "clear" -> reply(a, client.callRaw("policy.clear", Map.of()));
+            case "revoke" -> reply(a, client.callRaw("policy.revoke", ask(a, a.at(2))));
+            case "check" -> reply(a, client.callRaw("policy.check", ask(a, a.get("resource", a.at(2)))));
+            case "allow" -> reply(a, client.callRaw("policy.allow", ask(a, a.get("resource", a.at(2)))));
             case "quiet" -> quiet(client, a);
             case "extend" -> extend(client, a);
             default -> {
                 System.err.println("usage: uskoag-walletcli policy list|check|allow|quiet|extend|revoke|clear");
+                System.err.println("  list [--tier write] [--api sheets] [--account e] [--resource <text>]"
+                        + " [--blanket] [--all] [--expand] [--tsv] [--json]");
                 yield 1;
             }
         };
+    }
+
+    /**
+     * One line, and an exit code that means something.
+     *
+     * <p>These replies are a verdict and a sentence, and printing the JSON around them spent most of its
+     * width on {@code "rules":[]}. The exit code is the more serious half. Every reply here was parsed as
+     * {@code Asks.Done}, which shares no field with a {@link PolicyReply}, so the {@code ok} flag read false
+     * and the {@code message} read null — and {@link WalletCli#out} returns 0 on a null message. A
+     * not-covered {@code policy check} therefore exited 0, which means the one verb whose entire purpose is
+     * to be asked before a batch could not be tested by the scripts that were told to ask it.
+     */
+    private static int reply(Args a, String raw) {
+        var r = parse(raw);
+        if (r == null || r.verdict() == null) return WalletCli.out(raw);
+        System.out.println(a.has("json") ? raw
+                : r.detail() == null ? r.verdict() : r.verdict() + " — " + r.detail());
+        return r.allowed() ? 0 : 1;
+    }
+
+    /** An unrecognisable reply is handed on verbatim rather than reported as a refusal. */
+    private static PolicyReply parse(String raw) {
+        try {
+            return Json.to(raw, PolicyReply.class);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -69,9 +100,10 @@ public final class PolicyCommands {
             System.err.println("--tier '" + tier + "' is not a tier. Use read or write.");
             return 1;
         }
-        return WalletCli.out(client.callRaw("policy.quiet", new PolicyRequest(
+        return reply(a, client.callRaw("policy.quiet", new PolicyRequest(
                 null, a.get("account", null), a.get("api", null), null,
-                t, Match.EXACT, a.num("minutes", 0), a.num("ops", 0), a.get("reason", null))));
+                t, Match.EXACT, a.num("minutes", 0), a.num("ops", 0), a.get("reason", null),
+                a.has("this-run"))));
     }
 
     /**
@@ -96,10 +128,10 @@ public final class PolicyCommands {
                     + "' is not a tier. Use read, write or destructive.");
             return 1;
         }
-        return WalletCli.out(client.callRaw("policy.extend", new PolicyRequest(
+        return reply(a, client.callRaw("policy.extend", new PolicyRequest(
                 a.get("profile", "*"), a.get("account", "*"), a.get("api", "drive"), id, t,
                 Match.valueOf(a.get("match", "exact").toUpperCase()),
-                minutes, a.num("ops", 0), a.get("reason", null))));
+                minutes, a.num("ops", 0), a.get("reason", null), false)));
     }
 
     /**
@@ -141,6 +173,7 @@ public final class PolicyCommands {
                 Match.valueOf(a.get("match", "exact").toUpperCase()),
                 a.num("minutes", 0),
                 a.num("ops", 0),
-                a.get("reason", null));
+                a.get("reason", null),
+                a.has("this-run"));
     }
 }

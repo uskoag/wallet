@@ -47,6 +47,20 @@ public final class WalletPaths {
     }
 
     /**
+     * Two timestamps, in the clear: when the daily credential check last completed, and when it last
+     * asked for the passphrase.
+     *
+     * <p>Outside the keyring on purpose, and the reason is not laziness. Its only job is to decide whether
+     * to <em>ask</em> for the passphrase, a decision that by definition has to be made while locked. It is
+     * not a control either: the worst anything running as this user can do by editing it is suppress a
+     * maintenance prompt or cause a spare one. Every authoritative per-credential result — what was found,
+     * when it was last healthy, when it went stale — stays sealed in the keyring with everything else.
+     */
+    public static Path healthFile() {
+        return home().resolve("health.json");
+    }
+
+    /**
      * Plain copies of each account's {@code credentials.json}, so a forgotten passphrase costs the
      * refresh tokens and nothing else.
      *

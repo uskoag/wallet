@@ -41,6 +41,14 @@ public final class Audit {
         sweep();
     }
 
+    /**
+     * The open database, so {@link Requests} can keep its own type beside the events rather than starting
+     * a second embedded instance for the sake of a debug log. Nothing else may write through this.
+     */
+    public synchronized Database database() {
+        return db;
+    }
+
     public synchronized void close() {
         if (db != null && db.isOpen()) db.close();
         db = null;

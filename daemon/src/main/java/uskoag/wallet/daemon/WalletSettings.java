@@ -57,6 +57,29 @@ public final class WalletSettings {
      */
     public int autoLockMinutes = 60;
 
+    /**
+     * The once-a-day readonly ping over every stored credential.
+     *
+     * <p>On by default, and it earns that: it is the only thing standing between a refresh token that
+     * Google has quietly stopped honouring and the discovery of that fact halfway through real work. It
+     * also keeps both six-month inactivity clocks moving — the one that revokes an unused refresh token,
+     * and the one that deletes an unused OAuth client, which takes {@code credentials.json} with it.
+     *
+     * <p>What it cannot do is prevent the seven-day expiry a Cloud project still in Testing applies to
+     * every token it issues. Nothing can, except publishing the app.
+     */
+    public boolean dailyHealthCheck = true;
+
+    /**
+     * How long the daily check's passphrase box waits before hiding itself.
+     *
+     * <p>Much longer than every other passphrase prompt in this application, and quieter: those have a
+     * tool blocked behind them, this has a maintenance job that is perfectly happy to run at lunchtime
+     * instead. Dismissing it costs nothing — the check runs the next time the wallet is unlocked for any
+     * reason at all.
+     */
+    public int healthPromptMinutes = 30;
+
     // How long a permission of each tier may stand is NOT here. It is on uskoag.wallet.wire.Tier, fixed
     // and not overridable, because a ceiling anyone can raise is not a ceiling — and the reason it can
     // afford to be short is that extending costs one click.
@@ -71,6 +94,8 @@ public final class WalletSettings {
         destructiveOps = o.destructiveOps;
         destructiveMinutes = o.destructiveMinutes;
         autoLockMinutes = o.autoLockMinutes;
+        dailyHealthCheck = o.dailyHealthCheck;
+        healthPromptMinutes = o.healthPromptMinutes;
     }
 
     public WalletSettings copy() {

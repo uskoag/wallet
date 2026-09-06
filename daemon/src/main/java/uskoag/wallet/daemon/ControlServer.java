@@ -104,7 +104,7 @@ public final class ControlServer {
             }
             var verb = x.getRequestURI().getPath().substring("/wallet/".length());
             var body = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-            reply(x, 200, verbs.dispatch(verb, body));
+            reply(x, 200, verbs.dispatch(verb, body, peer(x)));
         } catch (Throwable t) {
             Log.error("control verb failed: " + x.getRequestURI().getPath(), t);
             try {
@@ -129,6 +129,25 @@ public final class ControlServer {
                 ? msg + "  — this wallet is running from a jar that has since been rebuilt."
                         + " Restart uskoag-wallet."
                 : msg;
+    }
+
+    /**
+     * Which process is on the other end, asked of the kernel while the connection is still up.
+     *
+     * <p>This is the only moment it can be asked. The lookup is over live sockets, and the tools that
+     * matter are short-lived CLI processes that will be gone seconds later — so it happens here, with the
+     * request in flight, and the answer is carried on the grant for the life of that handle.
+     *
+     * <p>Never a gate. Zero means "not established", which the caller treats as an ordinary answer.
+     */
+    private static long peer(HttpExchange x) {
+        try {
+            var remote = x.getRemoteAddress();
+            if (remote == null || !remote.getAddress().isLoopbackAddress()) return 0;
+            return PeerProcess.of(remote.getPort(), x.getLocalAddress().getPort()).orElse(0);
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
     private static void reply(HttpExchange x, int status, String json) throws IOException {

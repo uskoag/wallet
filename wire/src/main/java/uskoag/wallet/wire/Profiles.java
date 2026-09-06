@@ -16,13 +16,15 @@ import java.util.Map;
  */
 public final class Profiles {
 
-    public static final String GSHEETS = "gsheets", GDRIVE = "gdrive", GMAIL = "gmail", GSLIDES = "gslides";
+    public static final String GSHEETS = "gsheets", GDRIVE = "gdrive", GMAIL = "gmail", GSLIDES = "gslides",
+            GCALENDAR = "calendar";
 
     private static final Map<String, List<String>> SUGGESTED = Map.of(
             GSHEETS, List.of(Groups.DOCS.id()),
             GSLIDES, List.of(Groups.DOCS.id(), Groups.DRIVE_FILE.id(), Groups.DRIVE_READ.id()),
             GMAIL, List.of(Groups.MAIL_WRITE.id()),
-            GDRIVE, List.of(Groups.DRIVE_READ.id(), Groups.DRIVE_FULL.id()));
+            GDRIVE, List.of(Groups.DRIVE_READ.id(), Groups.DRIVE_FULL.id()),
+            GCALENDAR, List.of(Groups.CALENDAR_FULL.id()));
 
     private Profiles() {
     }

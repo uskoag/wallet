@@ -19,6 +19,13 @@ public enum GApi {
     OAUTH2("oauth2", "https://www.googleapis.com/"),
 
     /**
+     * Calendar is the other one still under {@code www.googleapis.com} rather than its own host — the
+     * generated client's own {@code Calendar.DEFAULT_ROOT_URL} / {@code DEFAULT_SERVICE_PATH}
+     * ({@code "calendar/v3/"}) confirm it, same as the Drive comment above.
+     */
+    CALENDAR("calendar", "https://www.googleapis.com/"),
+
+    /**
      * The one non-API host here, and it exists so that a raw access token never has to leave the wallet.
      *
      * <p>Slides has no API for a full-resolution page render. The only route is an undocumented endpoint

@@ -20,6 +20,11 @@
 
     <properties>
         <mainClass>uskoag.wallet.ui.Main</mainClass>
+        <!-- JavaFX ships prebuilt native bundles per OS/arch on Maven Central; the classifier picks
+             which one gets shaded in. Override with -Djavafx.classifier=mac-aarch64 (or mac, linux,
+             linux-aarch64) to build for a different target — Maven just downloads the artifact, so
+             this works from any build machine regardless of its own OS. -->
+        <javafx.classifier>win</javafx.classifier>
     </properties>
 
     <dependencies>
@@ -35,25 +40,25 @@
             <version>${luvjfx.ver}</version>
         </dependency>
 
-        <!-- The win classifier carries the natives as well as the classes; the plain artifact alone
+        <!-- The classifier carries the natives as well as the classes; the plain artifact alone
              cannot run from a shaded jar. -->
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-base</artifactId>
             <version>${javafx.ver}</version>
-            <classifier>win</classifier>
+            <classifier>${javafx.classifier}</classifier>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-graphics</artifactId>
             <version>${javafx.ver}</version>
-            <classifier>win</classifier>
+            <classifier>${javafx.classifier}</classifier>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
             <version>${javafx.ver}</version>
-            <classifier>win</classifier>
+            <classifier>${javafx.classifier}</classifier>
         </dependency>
 
         <!-- Test only, and only for SwingFXUtils: ApprovalPreview renders every shape of the approval
@@ -63,7 +68,7 @@
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-swing</artifactId>
             <version>${javafx.ver}</version>
-            <classifier>win</classifier>
+            <classifier>${javafx.classifier}</classifier>
             <scope>test</scope>
         </dependency>
     </dependencies>

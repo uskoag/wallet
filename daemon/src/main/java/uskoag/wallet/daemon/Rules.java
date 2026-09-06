@@ -9,6 +9,11 @@ public final class Rules {
     }
 
     public static Classification classify(RequestFacts f) {
+        // Before the per-service tables, because a batch envelope is not a request to any of them — it is
+        // a container, and classifying the container by its own POST verb called a hundred GETs a write.
+        if (f.is("POST") && BatchEnvelope.isEnvelope(f.path())) {
+            return BatchRequests.rankEnvelope(f, BatchEnvelope.of(f.body(), f.api()));
+        }
         return switch (f.api()) {
             case "drive" -> DriveRules.classify(f);
             case "sheets" -> SheetsRules.classify(f);
@@ -16,6 +21,7 @@ public final class Rules {
             case "slidesexport" -> SlidesRules.classifyExport(f);
             case "docs" -> DocsRules.classify(f);
             case "gmail" -> GmailRules.classify(f);
+            case "calendar" -> CalendarRules.classify(f);
             default -> fallback(f);
         };
     }

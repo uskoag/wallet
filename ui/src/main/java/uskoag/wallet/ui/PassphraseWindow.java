@@ -115,7 +115,8 @@ public final class PassphraseWindow {
                         + " readable, and nothing at Google is touched — so this costs you nothing but"
                         + " the typing.").wrapText(true),
                 label("Current passphrase"), current,
-                label("New passphrase"), fresh,
+                label("New passphrase (letters only - digits and symbols are dropped as you type," +
+                        " case doesn't matter)"), fresh,
                 label("New passphrase again"), again,
                 status.wrapText(true).style("-fx-text-fill: #b71c1c;"),
                 hbox().spacing(8).nodes(go, cancel),

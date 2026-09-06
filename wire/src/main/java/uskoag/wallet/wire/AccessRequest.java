@@ -20,5 +20,22 @@ public record AccessRequest(
         List<String> scopes,
         String session,
         long pid,
-        CallerInfo caller) {
+        CallerInfo caller,
+        long sourcePid) {
+
+    /**
+     * The one thing a client says that the wallet is allowed to act on, and only because it can check it.
+     *
+     * <p>{@code sourcePid} names the process this run of work belongs to — the agent or the terminal, not
+     * this short-lived invocation — so that one approval can cover the run. Everything else here is
+     * unverifiable and is displayed rather than trusted; this is verifiable, because the wallet learns the
+     * real calling process from the kernel and can confirm the declared pid is genuinely one of its
+     * ancestors. A declaration that is not gets discarded and reported at both ends.
+     *
+     * <p>Zero means nothing was declared, which is the ordinary case and costs nothing: the wallet then
+     * picks the anchor itself.
+     */
+    public AccessRequest {
+        if (sourcePid < 0) sourcePid = 0;
+    }
 }

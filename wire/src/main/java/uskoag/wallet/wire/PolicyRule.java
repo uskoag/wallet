@@ -64,6 +64,23 @@ public final class PolicyRule {
         return api == null && resource == null;
     }
 
+    /**
+     * True when this rule covers every document, however it came to.
+     *
+     * <p>Which is not the same question as {@link #blanket()}, and the difference was a live hole. A rule
+     * born from the dialog's breadth box has {@code match = ANY} and still carries the id of whichever
+     * document happened to be on screen when it was approved — so it matches everything while looking, to
+     * any code testing {@code resource == null}, like a rule about one file. That is exactly what the
+     * ceiling test did, so a permission covering every spreadsheet on an account was granted the
+     * per-document ceiling of a week instead of the blanket ceiling of a day. One such rule was standing
+     * in the live keyring with six days left to run.
+     *
+     * <p>The ceiling belongs to what a rule covers, never to how its fields happen to be filled in.
+     */
+    public boolean coversEverything() {
+        return resource == null || match == Match.ANY;
+    }
+
     public String describe() {
         // Spelled out rather than left as "* / * / * / *", because a listing is read to decide what to
         // revoke, and four asterisks are easy to skim past as "unset" when they mean the opposite.
@@ -86,5 +103,30 @@ public final class PolicyRule {
         if (expiresAt <= 0) return "no expiry";
         var when = java.time.Instant.ofEpochMilli(expiresAt).atZone(java.time.ZoneId.systemDefault());
         return "until " + when.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+    }
+
+    /**
+     * One row of the copyable TSV, so a permission review can be pasted straight into a sheet.
+     *
+     * <p>Nothing truncated, nothing collapsed, nothing hidden — the opposite of what the terminal listing
+     * does, and deliberately. Every judgement that view makes for the reader is one this hands over: raw
+     * epochs to sort on, both the id and the label, and the session that reveals why one document has seven
+     * rules. Sibling of {@code TokenInfo.tsv()} and the same shape for the same reason.
+     */
+    public String tsv() {
+        return String.join("\t", nz(id), String.valueOf(tier), nz(profile), nz(account), nz(api),
+                nz(resource), nz(label), String.valueOf(match), nz(session), nz(note),
+                String.valueOf(expiresAt), String.valueOf(createdAt), String.valueOf(lastUsed),
+                String.valueOf(opsBudget), String.valueOf(opsUsed));
+    }
+
+    public static String tsvHeader() {
+        return String.join("\t", "id", "tier", "profile", "account", "api", "resource", "label", "match",
+                "session", "note", "expiresAtEpochMs", "createdAtEpochMs", "lastUsedEpochMs",
+                "opsBudget", "opsUsed");
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
     }
 }

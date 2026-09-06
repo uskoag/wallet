@@ -21,11 +21,25 @@ import static luvjfx.Fx.vbox;
  * <p>Creating asks twice. A passphrase mistyped once at creation is not discovered until the next boot,
  * by which time there is nothing to compare it against and every stored refresh token is unreachable.
  * Unlocking afterwards asks once, because a wrong answer there costs a retry and nothing else.
+ *
+ * <p>How hard the window pushes is carried by {@link UnlockAsk} rather than fixed here, because the wallet
+ * now asks for two different reasons: a tool blocked mid-call, and the daily credential check, which is
+ * happy to wait.
  */
 public final class UnlockWindow {
 
-    /** Seconds of no typing before an unattended passphrase box gives up and hides itself. */
-    private static final int IDLE_SECONDS = 120;
+    /**
+     * The reason line, and the failure line, in that order — they are the same label and they were the
+     * same colour, which was wrong in one direction.
+     *
+     * <p>Everything under the passphrase box used to be red. But a reason is not an error: "the daily
+     * credential check needs the keyring open" printed in the colour reserved for failure says something
+     * has gone wrong at the exact moment nothing has, and on the one prompt in this application with
+     * nothing blocked behind it. A wrong passphrase still goes red, because that one is a failure.
+     */
+    private static final String
+            REASON = "-fx-text-fill: #444;",
+            FAILED = "-fx-text-fill: #b71c1c;";
 
     /**
      * The one open prompt, so several tools arriving at a locked wallet at once get a single box rather
@@ -33,18 +47,34 @@ public final class UnlockWindow {
      */
     private static Stage open;
 
+    /** What the open box is for, so a blocked tool can displace a maintenance prompt. */
+    private static UnlockAsk openAsk;
+
     private UnlockWindow() {
     }
 
     public static void show(WalletCore core, Runnable onUnlocked, String because) {
+        show(core, onUnlocked, UnlockAsk.forTool(because));
+    }
+
+    public static void show(WalletCore core, Runnable onUnlocked, UnlockAsk ask) {
         if (open != null && open.isShowing()) {
-            Ui.toFront(open);
-            return;
+            // A tool that has stopped mid-call outranks the daily check, and it has to, or the reason on
+            // screen is the wrong one: raising the maintenance box for a blocked tool would tell somebody
+            // that nothing is waiting at the exact moment something is.
+            if (ask.insistent() && openAsk != null && !openAsk.insistent()) {
+                open.close();
+                open = null;
+            } else {
+                if (ask.insistent()) Ui.toFront(open);
+                return;
+            }
         }
         var creating = !core.keyring.exists();
         var stage = new Stage();
         open = stage;
-        stage.setAlwaysOnTop(true);
+        openAsk = ask;
+        stage.setAlwaysOnTop(ask.insistent());
         stage.setTitle(uskoag.wallet.wire.Brand.titled(creating ? "create keyring" : "unlock"));
         AppIcon.applyTo(stage);
 
@@ -59,7 +89,7 @@ public final class UnlockWindow {
             PassphraseWindow.lettersOnly(confirm);
         }
 
-        var status = label(because == null ? "" : because);
+        var status = label(ask.because() == null ? "" : ask.because());
         var go = button(creating ? "Create keyring" : "Unlock").defaultButton(true);
         var forgot = button("Forgot passphrase...");
         var quit = button("Quit").cancelButton(true);
@@ -70,6 +100,7 @@ public final class UnlockWindow {
         var blurb = label(creating
                 ? "This is the only thing standing between anything on this machine and every Google account"
                   + " it can reach. It is never stored anywhere. Type it twice."
+                : ask.blurb() != null ? ask.blurb()
                 : "Everything Google that this machine can reach is behind this passphrase.").wrapText(true);
 
         Runnable attempt = () -> {
@@ -88,6 +119,7 @@ public final class UnlockWindow {
                 core.unlock(typed);
                 stage.close();
                 open = null;
+                openAsk = null;
                 if (onUnlocked != null) onUnlocked.run();
             } catch (Exception e) {
                 fail(status, first, confirm, "That did not unlock the keyring. Cleared - type it again."
@@ -103,6 +135,7 @@ public final class UnlockWindow {
         forgot.attr(b -> b.setOnAction(e -> {
             stage.close();
             open = null;
+            openAsk = null;
             ResetWindow.show(core, onUnlocked);
         }));
         first.attr(f -> f.setOnAction(e -> {
@@ -111,10 +144,12 @@ public final class UnlockWindow {
         }));
         confirm.attr(f -> f.setOnAction(e -> attempt.run()));
 
-        body.nodes(heading, blurb, label(creating ? "Passphrase" : ""), first);
+        body.nodes(heading, blurb, label(creating
+                ? "Passphrase (letters only - digits and symbols are dropped as you type, case doesn't matter)"
+                : ""), first);
         if (creating) body.nodes(label("Passphrase again"), confirm);
         var closing = label("");
-        body.nodes(status.wrapText(true).style("-fx-text-fill: #b71c1c;"),
+        body.nodes(status.wrapText(true).style(REASON),
                 hbox().spacing(8).nodes(go, creating ? quit : forgot, creating ? label("") : quit),
                 label(creating
                         ? "Enter moves to the second box, then creates   |   Esc hides this   |   Quit stops the wallet"
@@ -123,15 +158,39 @@ public final class UnlockWindow {
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                 closing.style("-fx-font-size: 10px; -fx-text-fill: #999;"));
 
-        var sc = scene(body.style(Ui.INK), 520, creating ? 380 : 330);
+        var sc = scene(body.style(Ui.INK), 520, creating ? 380 : ask.blurb() == null ? 330 : 400);
         // Esc hides, it does not quit. The wallet is a service now: every tool on this machine reaches
         // Google through it, so dismissing a dialog must not take the service down with it. Quit still
         // does exactly what it says.
-        Ui.escCloses(sc, stage, () -> open = null);
+        Ui.escCloses(sc, stage, () -> {
+            open = null;
+            openAsk = null;
+        });
         stage.setScene(sc);
-        stage.setOnShown(e -> Platform.runLater(() -> Ui.grabFocus(stage, first.node)));
-        idleClose(stage, closing, first, confirm);
-        Ui.grabFocus(stage, first.node);
+        idleClose(stage, closing, first, confirm, ask.idleSeconds());
+        if (ask.insistent()) {
+            stage.setOnShown(e -> Platform.runLater(() -> Ui.grabFocus(stage, first.node)));
+            Ui.grabFocus(stage, first.node);
+            // toFront()/requestFocus() only raise the window WITHIN whatever macOS Space this process's
+            // window already lives on - they do not switch the user to that Space, so a blocked tool's
+            // unlock prompt can sit unseen on a Space nobody is looking at. Bouncing the dock icon is
+            // visible from any Space and does not go away on its own, unlike toFront().
+            try {
+                var taskbar = java.awt.Taskbar.getTaskbar();
+                if (taskbar.isSupported(java.awt.Taskbar.Feature.USER_ATTENTION)) {
+                    taskbar.requestUserAttention(true, true);
+                }
+            } catch (Throwable t) {
+                uskoag.wallet.daemon.Log.warn("could not request user attention for insistent unlock: " + t);
+            }
+        } else {
+            // Visible without seizing the keyboard. The caret is put in the box inside the scene, so the
+            // window is still typed into the moment it is picked up — but nothing is taken away from
+            // whatever is being typed into right now, which is the whole point of a quiet ask.
+            stage.show();
+            stage.toFront();
+            first.node.requestFocus();
+        }
     }
 
     /**
@@ -145,14 +204,16 @@ public final class UnlockWindow {
      * was told to retry, so there is no request to fail.
      */
     private static void idleClose(Stage stage, luvjfx.FxLabel closing,
-                                 luvjfx.FxPasswordField first, luvjfx.FxPasswordField confirm) {
-        var left = new java.util.concurrent.atomic.AtomicInteger(IDLE_SECONDS);
+                                 luvjfx.FxPasswordField first, luvjfx.FxPasswordField confirm,
+                                 int idleSeconds) {
+        var left = new java.util.concurrent.atomic.AtomicInteger(idleSeconds);
         var clock = new javafx.animation.Timeline(new javafx.animation.KeyFrame(
                 javafx.util.Duration.seconds(1), e -> {
             var n = left.decrementAndGet();
             if (n <= 0) {
                 stage.close();
                 open = null;
+                openAsk = null;
                 return;
             }
             closing.text("closes in " + n / 60 + ":" + String.format("%02d", n % 60)
@@ -161,7 +222,7 @@ public final class UnlockWindow {
         clock.setCycleCount(javafx.animation.Animation.INDEFINITE);
         clock.play();
 
-        Runnable reset = () -> left.set(IDLE_SECONDS);
+        Runnable reset = () -> left.set(idleSeconds);
         first.node.setOnKeyTyped(e -> reset.run());
         confirm.node.setOnKeyTyped(e -> reset.run());
         stage.setOnHidden(e -> clock.stop());
@@ -170,6 +231,7 @@ public final class UnlockWindow {
     private static void fail(luvjfx.FxLabel status, luvjfx.FxPasswordField first, luvjfx.FxPasswordField confirm,
                              String message) {
         status.text(message);
+        status.style(FAILED);
         ((PasswordField) first.node).clear();
         ((PasswordField) confirm.node).clear();
         first.node.requestFocus();

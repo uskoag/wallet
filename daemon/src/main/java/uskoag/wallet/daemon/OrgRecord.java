@@ -31,6 +31,45 @@ public final class OrgRecord {
     List<String> domains = new ArrayList<>();
     long addedAt = System.currentTimeMillis();
 
+    /**
+     * When this client's id and secret were last put in front of Google's token endpoint.
+     *
+     * <p>Recorded because Google deletes an OAuth client that has been inactive for six months, and what
+     * it deletes is the client — {@code credentials.json} itself, not merely the tokens minted from it. So
+     * an org whose accounts all sit idle loses the thing that cannot be re-created by consenting again.
+     * The daily readonly ping is what keeps this number moving, and this is where that is visible.
+     */
+    long lastExercisedAt;
+
+    /**
+     * How many days each credential under this client had lived when it went stale, oldest first, capped.
+     *
+     * <p>This is the only route to a fact Google publishes nowhere: a Cloud project still in
+     * <em>Testing</em> publishing status expires every refresh token seven days after issuing it,
+     * regardless of use. No API reports the publishing status, so it is inferred from the pattern of
+     * deaths — and the pattern is unmistakable once two or three have been recorded at the same figure.
+     * See {@link uskoag.wallet.wire.OrgInfo#expiryHint}.
+     */
+    List<Integer> observedLifeDays = new ArrayList<>();
+
+    private static final int KEPT_LIVES = 8;
+
+    public List<Integer> observedLifeDays() {
+        if (observedLifeDays == null) observedLifeDays = new ArrayList<>();
+        return observedLifeDays;
+    }
+
+    void exercised(long now) {
+        lastExercisedAt = now;
+    }
+
+    /** One credential under this client has died after {@code days}. Kept as evidence, not as a total. */
+    void died(long days) {
+        if (days <= 0) return;
+        observedLifeDays().add((int) days);
+        while (observedLifeDays().size() > KEPT_LIVES) observedLifeDays().removeFirst();
+    }
+
     public OrgRecord() {
     }
 

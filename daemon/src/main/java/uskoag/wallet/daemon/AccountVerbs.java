@@ -112,6 +112,71 @@ public final class AccountVerbs {
                         : ", " + failed.size() + " failed and can be retried on their own. " + describe(failed))));
     }
 
+    /**
+     * Consent again for credentials Google has stopped honouring, keeping the same scopes.
+     *
+     * <p>Separate from {@link #login} rather than a flag on it, because the two answer different
+     * questions. Login is "grant this account these powers", and the group list is a decision. This is
+     * "the thing you already decided has expired", and re-deciding it is exactly what must not happen — so
+     * the scopes come from the stored token: a catalogue group re-consents with the catalogue's scopes, and
+     * a {@code legacy} or hand-written group re-consents with the precise set that token was carrying.
+     * Nothing is silently widened, and nothing is quietly dropped.
+     *
+     * <p>A blank group takes every credential on the account that the daily check has found broken, which
+     * is the usual shape of the problem: a client's whole set of tokens dies on the same day, not one of
+     * them.
+     */
+    public String reauth(Asks.Reauth req) throws IOException {
+        require();
+        var account = req.account();
+        if (account == null || account.isBlank()) throw new IOException("which account?");
+        var wanted = core.keyring.tokensFor(account).stream()
+                .filter(c -> req.group() == null || req.group().isBlank()
+                        ? c.health().bad() : c.group.equalsIgnoreCase(req.group()))
+                .toList();
+        if (wanted.isEmpty()) {
+            var held = core.keyring.tokensFor(account);
+            return Json.of(Asks.Done.no(held.isEmpty()
+                    ? "no tokens for " + account
+                    : "nothing on " + account + " is failing. Name a group to re-consent it anyway: "
+                      + held.stream().map(c -> c.group).toList()));
+        }
+
+        var done = new ArrayList<String>();
+        var failed = new LinkedHashMap<String, String>();
+        for (var stale : wanted) {
+            var org = core.keyring.org(stale.orgId).orElse(null);
+            if (org == null) {
+                failed.put(stale.group, "no OAuth client stored for org '" + stale.orgId + "'");
+                continue;
+            }
+            var group = Groups.byId(stale.group)
+                    .orElseGet(() -> ScopeGroup.handWritten(stale.group, stale.scopes()));
+            try {
+                var fresh = OAuthRunner.consent(account, org, group, req.port() <= 0 ? 8888 : req.port(),
+                        core.gateway(), core.settings.openBrowserAutomatically);
+                fresh.order = stale.order;
+                fresh.useCount = stale.useCount;
+                fresh.lastUsed = stale.lastUsed;
+                core.keyring.data().credentials().remove(stale);
+                core.keyring.data().credentials().add(fresh);
+                // Checked at once rather than at the next daily slot, so the row a person is looking at
+                // says "healthy, just now" instead of leaving them to wonder whether it took.
+                HealthCheck.check(fresh, org);
+                core.keyring.save();
+                done.add(stale.group);
+            } catch (Exception e) {
+                failed.put(stale.group, String.valueOf(e.getMessage()));
+                Log.warn("re-consent failed for " + account + " / " + stale.group + " - " + e.getMessage());
+            }
+        }
+        core.tokens.clear();
+        if (done.isEmpty()) throw new IOException("nothing was re-authenticated. " + describe(failed));
+        return Json.of(Map.of("account", account, "reauthenticated", done, "failed", failed,
+                "message", done.size() + " re-authenticated"
+                        + (failed.isEmpty() ? "." : ", " + failed.size() + " failed. " + describe(failed))));
+    }
+
     private static String describe(Map<String, String> failed) {
         return failed.entrySet().stream()
                 .map(e -> e.getKey() + ": " + e.getValue())

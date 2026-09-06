@@ -28,6 +28,15 @@ public final class PolicyVerbs {
     }
 
     public String dispatch(String verb, String body) throws IOException {
+        return dispatch(verb, body, 0);
+    }
+
+    /**
+     * @param peerPid the calling process as the kernel named it, passed down rather than stashed on this
+     *                object: verbs are served on virtual threads and a field would have two concurrent
+     *                callers overwriting each other's identity
+     */
+    public String dispatch(String verb, String body, long peerPid) throws IOException {
         if (!core.keyring.unlocked()) {
             // Ask, rather than only complain. WalletCore.access already raises the window when a tool needs
             // a credential; these verbs did not, so `policy quiet` on a locked wallet printed "unlock the
@@ -42,7 +51,7 @@ public final class PolicyVerbs {
             case "policy.list" -> Json.of(PolicyReply.listing(core.policy.rules()));
             case "policy.check" -> check(Json.to(body, PolicyRequest.class));
             case "policy.allow" -> allow(Json.to(body, PolicyRequest.class));
-            case "policy.quiet" -> quiet(Json.to(body, PolicyRequest.class));
+            case "policy.quiet" -> quiet(Json.to(body, PolicyRequest.class), peerPid);
             case "policy.extend" -> extend(Json.to(body, PolicyRequest.class));
             case "policy.revoke" -> revoke(body);
             case "policy.clear" -> Json.of(PolicyReply.of(true, "cleared", core.policy.clear() + " rule(s) removed"));
@@ -123,7 +132,7 @@ public final class PolicyVerbs {
      * is a real reduction and it is the one being asked for; the expiry is what keeps it from being
      * permanent, and {@code policy list} is what keeps it from being invisible.
      */
-    private String quiet(PolicyRequest r) throws IOException {
+    private String quiet(PolicyRequest r, long peerPid) throws IOException {
         var tier = r.tier();
         if (tier == uskoag.wallet.wire.Tier.DESTRUCTIVE) {
             return Json.of(PolicyReply.of(false, "refused",
@@ -146,14 +155,28 @@ public final class PolicyVerbs {
         // No resource, no name lookup: there is no document to ask Google about, which is exactly what
         // makes this the widest thing the wallet can be asked for and why the dialog says so in amber.
         var res = new ResourceRef(api, null, null);
+
+        // Pinned to the run that asked, when asked for. This is the "across documents AND across accounts,
+        // without being asked every time" case, and pinning is what makes it reasonable to offer: the rule
+        // names the process the work belongs to, so it cannot be inherited by whatever runs next — it stops
+        // existing when that process does. Strictly narrower than the same rule unpinned, never wider.
+        var anchor = r.thisRun() ? Anchors.resolve(peerPid, 0) : null;
+        if (r.thisRun() && (anchor == null || !anchor.known())) {
+            return Json.of(PolicyReply.of(false, "unpinned",
+                    "asked to pin this to the current run, but the calling process could not be"
+                    + " identified, so there is nothing to pin it to. Run it without --this-run to get"
+                    + " the ordinary time-bounded rule instead."));
+        }
         var scope = (api == null ? "every API" : api) + ", "
-                + (account == null ? "every account" : account);
+                + (account == null ? "every account" : account)
+                + (anchor == null ? "" : ", only while " + anchor.describe() + " is running");
 
         var answer = core.gateway().ask(new ApprovalAsk(
                 "cli", "CLI ", null, "uskoag-walletcli", account, api,
                 "stand a rule allowing " + tier + " on EVERYTHING", res,
                 "blanket permission — " + scope,
-                tier, 1, cliCaller("policy quiet --tier " + tier), ProcessHandle.current().pid(), "cli",
+                tier, 1, cliCaller("policy quiet --tier " + tier), ProcessHandle.current().pid(),
+                anchor == null ? "cli" : anchor.describe(),
                 // Not because it is irreversible; because it is wide.
                 true));
         if (!answer.allowed()) return Json.of(PolicyReply.of(false, "denied", "you declined"));
@@ -161,9 +184,10 @@ public final class PolicyVerbs {
         var wanted = new ApprovalAnswer(true, true, r.ops() == 0 ? answer.ops() : r.ops(),
                 r.minutes() == 0 ? answer.minutes() : r.minutes(), Match.EXACT,
                 r.reason() == null ? "blanket " + tier : r.reason());
-        // session null, so it stands across commands. That is the entire difference between this and the
-        // dialog's breadth box, and it is why this one costs a passphrase and that one does not.
-        var rule = core.policy.remember(null, account, null, res, tier, wanted, wanted.note());
+        // Session null unless pinned, so by default it stands across commands. That is the difference
+        // between this and the dialog's breadth box, and it is why this one costs a passphrase.
+        var rule = core.policy.remember(null, account, anchor == null ? null : anchor.id(),
+                res, tier, wanted, wanted.note());
         return Json.of(PolicyReply.of(true, "quiet", rule.describe()));
     }
 

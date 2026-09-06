@@ -33,7 +33,7 @@ public final class FxGateway implements ApprovalGateway {
                     + because + ". Restart uskoag-wallet.exe --debug to unlock it again.");
             return;
         }
-        Platform.runLater(() -> UnlockWindow.show(core, null, because));
+        Platform.runLater(() -> UnlockWindow.show(core, null, UnlockAsk.forTool(because)));
     }
 
     @Override
@@ -55,7 +55,7 @@ public final class FxGateway implements ApprovalGateway {
     public void showWindow() {
         Platform.runLater(() -> {
             if (core.keyring.unlocked()) MainWindow.show(core);
-            else UnlockWindow.show(core, () -> MainWindow.show(core), null);
+            else UnlockWindow.show(core, () -> MainWindow.show(core), UnlockAsk.forTool(null));
         });
     }
 

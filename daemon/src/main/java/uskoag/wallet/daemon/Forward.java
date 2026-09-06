@@ -36,7 +36,7 @@ public final class Forward {
     }
 
     public static void relay(HttpExchange x, GApi api, String path, String query,
-                             byte[] bufferedBody, String bearer, int proxyPort) throws IOException {
+                             Bodies bodies, String bearer, int proxyPort) throws IOException {
         var uri = URI.create(api.upstream + path + (query == null || query.isBlank() ? "" : "?" + query));
         var b = HttpRequest.newBuilder(uri).timeout(Duration.ofMinutes(30));
 
@@ -47,11 +47,7 @@ public final class Forward {
         b.header("Authorization", "Bearer " + bearer);
 
         var method = x.getRequestMethod();
-        var body = bufferedBody != null
-                ? HttpRequest.BodyPublishers.ofByteArray(bufferedBody)
-                : hasBody(x) ? HttpRequest.BodyPublishers.ofInputStream(x::getRequestBody)
-                             : HttpRequest.BodyPublishers.noBody();
-        b.method(method, body);
+        b.method(method, publisher(x, bodies));
 
         HttpResponse<InputStream> res;
         try {
@@ -77,6 +73,26 @@ public final class Forward {
             var buf = new byte[BUFFER];
             for (var n = in.read(buf); n > 0; n = in.read(buf)) sink.write(buf, 0, n);
         }
+    }
+
+    /**
+     * The three ways a body reaches Google, and the middle one exists because of a bug worth naming.
+     *
+     * <p>A body that was buffered whole is sent as bytes. A body that turned out to be larger than the
+     * parse limit has had its first megabyte consumed already and cannot be rewound, so the consumed
+     * prefix is put back in front of the rest of the stream — where the old code simply forwarded the
+     * truncated prefix on its own. Nothing caught it because a gzipped body is chunked and carries no
+     * Content-Length, so the guard that was supposed to stream large bodies never fired for the ones that
+     * mattered. Everything else streams as before.
+     */
+    private static HttpRequest.BodyPublisher publisher(HttpExchange x, Bodies bodies) {
+        if (bodies.buffered() != null) return HttpRequest.BodyPublishers.ofByteArray(bodies.buffered());
+        if (bodies.prefix() != null) {
+            return HttpRequest.BodyPublishers.ofInputStream(() -> new java.io.SequenceInputStream(
+                    new java.io.ByteArrayInputStream(bodies.prefix()), x.getRequestBody()));
+        }
+        return hasBody(x) ? HttpRequest.BodyPublishers.ofInputStream(x::getRequestBody)
+                          : HttpRequest.BodyPublishers.noBody();
     }
 
     private static boolean hasBody(HttpExchange x) {

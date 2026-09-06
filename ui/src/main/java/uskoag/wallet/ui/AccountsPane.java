@@ -31,7 +31,22 @@ public final class AccountsPane {
 
     private static final String INFER = "(infer from domain)";
 
+    /**
+     * The live tab's own refresh, so the daily health check can put what it found on screen.
+     *
+     * <p>Held statically because the sweep runs on a background thread minutes or hours after this pane was
+     * built, and it has no other way back to it. Null until the tab exists, which is the common case: the
+     * check almost always runs with no window open at all.
+     */
+    private static Runnable liveRefresh;
+
     private AccountsPane() {
+    }
+
+    /** Called by {@link HealthDaily} after a sweep. Does nothing when nobody is looking. */
+    static void refreshIfShowing() {
+        var refresh = liveRefresh;
+        if (refresh != null && MainWindow.isShowing()) refresh.run();
     }
 
     public static Node build(WalletCore core) {
@@ -50,6 +65,12 @@ public final class AccountsPane {
         var email = textField().promptText("someone@example.org");
         var client = choiceBox(String.class);
         var status = label("");
+
+        // Across the top rather than in the table, because a red cell in the third column of a table
+        // somebody has not looked at today is not a warning, it is a fact waiting to be discovered by a
+        // failing batch. Empty and invisible when everything is well.
+        var banner = label("").wrapText(true);
+        banner.attr(l -> l.setVisible(false));
 
         Runnable reloadClients = () -> {
             var ids = new ArrayList<String>();
@@ -87,7 +108,9 @@ public final class AccountsPane {
                           + " Nothing is missing; unlock to see them.")));
             }
             tree.setRoot(root);
+            showHealth(core, banner);
         };
+        liveRefresh = refresh;
         refresh.run();
 
         tree.getSelectionModel().selectedItemProperty().addListener((o, was, is) -> {
@@ -98,10 +121,19 @@ public final class AccountsPane {
                     t.label() + "\n" + t.detail()
                             + "\n\nGoogle classes this: " + t.tier().label
                             + "\nUsed " + TokenInfo.count(t.useCount()) + " time(s)"
+                            + "\n\nHealth: " + t.state().label
+                            + "   ·   checked " + AccountsTable.ago(t.lastCheckedAt())
+                            + "   ·   last healthy " + AccountsTable.ago(t.lastHealthyAt())
+                            + "   ·   granted " + t.lifeDays() + " day(s) "
+                            + (t.staleSince() > 0 ? "before it died" : "ago")
+                            + (t.healthNote() == null || t.healthNote().isBlank() ? ""
+                               : "\n" + t.healthNote())
                             + "\n\nScopes:\n  " + String.join("\n  ", t.scopes()));
         });
 
         var grant = button("Grant...  (G)");
+        var reauth = button("Re-authenticate  (R)");
+        var checkHealth = button("Check health now  (H)");
         var remove = button("Remove token  (Del)");
         var up = button("Prefer sooner  (U)");
         var down = button("Prefer later  (D)");
@@ -140,6 +172,71 @@ public final class AccountsPane {
             }, "wallet-consent").start();
         };
         grant.attr(b -> b.setOnAction(e -> doGrant.run()));
+
+        /*
+         * Consent again for what has expired, keeping the scopes exactly as they were.
+         *
+         * Not a variant of Grant, because Grant asks which powers to give and that is a decision — the one
+         * decision that must not be re-taken here. What has happened is that a permission already agreed
+         * has expired, so the scopes come from the stored token: a catalogue group re-consents with the
+         * catalogue's scopes, a legacy or hand-written group with the precise set it was carrying.
+         *
+         * A token row re-consents that group. An account row takes every credential on the account the
+         * daily check has found broken, which is the usual shape of it — a client's whole set of tokens
+         * dies on the same day, not one of them.
+         */
+        Runnable doReauth = () -> {
+            var sel = tree.getSelectionModel().getSelectedItem();
+            var who = sel != null && sel.getValue().account() != null ? sel.getValue().account()
+                    : ((TextField) email.node).getText().trim();
+            if (who.isEmpty()) {
+                status.text("Select an account or a token first.");
+                return;
+            }
+            var one = sel == null ? null : sel.getValue().token();
+            var what = one == null ? "every failing credential on " + who : one.label() + " for " + who;
+            if (!Confirm.ask("Re-authenticate", "Consent again for " + what + "?\n\n"
+                    + "A browser window opens, one per credential, and the scopes are exactly the ones\n"
+                    + "already granted — nothing is widened. Standing permissions and the audit are\n"
+                    + "untouched.", "Re-authenticate", "Cancel")) return;
+            status.text("Consent windows will open. Sign in as " + who + ".");
+            new Thread(() -> {
+                try {
+                    accounts.reauth(new Asks.Reauth(who, one == null ? null : one.group(), 8888));
+                    AuthUrlWindow.dismiss();
+                    javafx.application.Platform.runLater(() -> {
+                        status.text("Re-authenticated. The health column is checked again immediately,"
+                                + " so it should read healthy now.");
+                        refresh.run();
+                    });
+                } catch (Exception ex) {
+                    AuthUrlWindow.dismiss();
+                    javafx.application.Platform.runLater(() -> status.text(String.valueOf(ex.getMessage())));
+                }
+            }, "wallet-reauth").start();
+        };
+        reauth.attr(b -> b.setOnAction(e -> doReauth.run()));
+
+        // The same check the daily sweep runs, on demand — because the moment anyone wants to know is the
+        // moment something has just failed, not tomorrow at breakfast.
+        Runnable doCheck = () -> {
+            var sel = tree.getSelectionModel().getSelectedItem();
+            var one = sel == null ? null : sel.getValue().token();
+            status.text("Checking with Google, read-only...");
+            new Thread(() -> {
+                try {
+                    var report = core.health.run(one == null ? null : one.account(),
+                            one == null ? null : one.group());
+                    javafx.application.Platform.runLater(() -> {
+                        status.text(report.headline());
+                        refresh.run();
+                    });
+                } catch (Exception ex) {
+                    javafx.application.Platform.runLater(() -> status.text(String.valueOf(ex.getMessage())));
+                }
+            }, "wallet-health-now").start();
+        };
+        checkHealth.attr(b -> b.setOnAction(e -> doCheck.run()));
 
         Runnable doRemove = () -> {
             var sel = tree.getSelectionModel().getSelectedItem();
@@ -255,6 +352,8 @@ public final class AccountsPane {
                 case U -> move.accept(-1);
                 case D -> move.accept(1);
                 case G -> doGrant.run();
+                case R -> doReauth.run();
+                case H -> doCheck.run();
                 default -> { }
             }
         });
@@ -277,16 +376,56 @@ public final class AccountsPane {
                 label("One token per scope group, so each expires on its own and an unused mail grant"
                         + " cannot take Sheets down with it. The narrowest token that covers a request is"
                         + " the one used.").wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"),
+                banner,
                 luvjfx.Fx.fx(tree),
                 detail,
                 hbox().spacing(6).nodes(label("email"), email, label("client"), client),
-                hbox().spacing(6).nodes(grant, remove, up, down, forget),
+                hbox().spacing(6).nodes(grant, reauth, checkHealth),
+                hbox().spacing(6).nodes(remove, up, down, forget),
                 hbox().spacing(6).nodes(removeUnused, label("idle days (0 = never used)"), unusedDays,
                         googlePage, copy, reload),
-                label("In the table:   Del removes a token   ·   U prefers it sooner   ·   D prefers it"
-                        + " later   ·   G grants   ·   hover any row for its exact scopes")
+                label("In the table:   R re-authenticates   ·   H checks health now   ·   G grants   ·"
+                        + "   Del removes a token   ·   U prefers it sooner   ·   D prefers it later   ·"
+                        + "   hover any row for its exact scopes")
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                 status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
+    }
+
+    /**
+     * The banner: what the daily check found, and the one sentence that explains a whole client's worth of
+     * deaths when there is one.
+     *
+     * <p>The client-level hint is folded in here rather than left on the Clients tab because this is where
+     * the question gets asked. Three tokens all stale on the same morning is not three problems, and being
+     * told "these keep dying at seven days, which is what a Cloud project still in Testing does" is the
+     * difference between re-authenticating weekly forever and publishing the app once.
+     */
+    private static void showHealth(WalletCore core, luvjfx.FxLabel banner) {
+        if (!core.keyring.unlocked()) {
+            banner.attr(l -> l.setVisible(false));
+            return;
+        }
+        var broken = core.accounts().stream().flatMap(a -> a.tokens().stream())
+                .filter(t -> t.state().bad()).toList();
+        if (broken.isEmpty()) {
+            var everChecked = core.accounts().stream().flatMap(a -> a.tokens().stream())
+                    .anyMatch(t -> t.lastCheckedAt() > 0);
+            banner.text(everChecked ? "" : "Credential health has not been checked yet. Press H to check"
+                    + " now, or leave it to the daily check.");
+            banner.style("-fx-font-size: 11px; -fx-text-fill: #777;");
+            banner.attr(l -> l.setVisible(!everChecked));
+            return;
+        }
+        var hint = core.orgs().stream().map(uskoag.wallet.wire.OrgInfo::expiryHint)
+                .filter(java.util.Objects::nonNull).findFirst().orElse(null);
+        banner.text(broken.size() + " credential(s) are not working: "
+                + broken.stream().map(t -> t.account() + " / " + t.label()).distinct()
+                .reduce((a, b) -> a + "   ·   " + b).orElse("")
+                + ".   Select one and press R to re-authenticate."
+                + (hint == null ? "" : "\n" + hint));
+        banner.style("-fx-text-fill: #b71c1c; -fx-font-weight: bold;"
+                + " -fx-background-color: #fdecea; -fx-padding: 6;");
+        banner.attr(l -> l.setVisible(true));
     }
 
     /** Everything the row knows, for a hover — the exact scopes above all, which is the real question. */
@@ -298,8 +437,11 @@ public final class AccountsPane {
                         + t.detail() + "\n"
                         + "Google classes this: " + t.tier().label + "\n"
                         + "Used " + TokenInfo.count(t.useCount()) + " time(s), last "
-                        + AccountsTable.ago(t.lastUsed()) + "\n\n"
-                        + String.join("\n", t.scopes()));
+                        + AccountsTable.ago(t.lastUsed()) + "\n"
+                        + "Health: " + t.state().label + ", checked " + AccountsTable.ago(t.lastCheckedAt())
+                        + ", last healthy " + AccountsTable.ago(t.lastHealthyAt()) + "\n"
+                        + (t.healthNote() == null || t.healthNote().isBlank() ? "" : t.healthNote() + "\n")
+                        + "\n" + String.join("\n", t.scopes()));
         tip.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 11px;");
         tip.setShowDelay(javafx.util.Duration.millis(400));
         // Long enough to actually read a dozen scope URLs; the default hides while you are still on the

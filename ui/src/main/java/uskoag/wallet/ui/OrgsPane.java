@@ -50,7 +50,20 @@ public final class OrgsPane {
                 // client that simply never claims an account. Saying so beside it is the only way that is
                 // ever noticed.
                 Cols.of("Pattern problems", 200, OrgsPane::problems),
-                Cols.of("Client id", 290, o -> o.clientId() == null ? "" : o.clientId()),
+                // Google deletes an OAuth client after six months of inactivity, and what it deletes is
+                // credentials.json itself — the one thing here that consenting again cannot rebuild. The
+                // daily readonly credential check is what keeps this number moving, so this column is
+                // where that shows up, and where it shows up if it ever stops.
+                Cols.of("Client last used", 130, o -> {
+                    var days = o.daysSinceExercised();
+                    return days < 0 ? "never by this wallet" : days + "d ago";
+                }),
+                // Nothing in any Google API reports whether a Cloud project is still in Testing, and a
+                // Testing project expires every refresh token seven days after issuing it whatever anybody
+                // does. So it is inferred from how long credentials under this client actually survive.
+                Cols.of("Token lifetimes seen", 200, o -> o.lives().isEmpty() ? ""
+                        : o.lives().stream().map(d -> d + "d").reduce((a, b) -> a + ", " + b).orElse("")),
+                Cols.of("Client id", 250, o -> o.clientId() == null ? "" : o.clientId()),
                 Cols.of("Added", 145, o -> Cols.stamp(o.addedAt())));
         Cols.ready(table, "No OAuth clients yet. Give one a short id below and upload its credentials.json.");
         var id = textField().promptText("short id, e.g. uskf");
@@ -65,12 +78,26 @@ public final class OrgsPane {
         domains.attr(t -> t.setPrefRowCount(6));
         var status = label("");
 
+        // The two client-level facts that no column can state in three words, and that explain a whole
+        // account's worth of expiries when they apply.
+        var warnings = label("").wrapText(true);
+        warnings.attr(l -> l.setVisible(false));
+
         Runnable refresh = () -> {
             // core.orgs() is empty while locked, so the placeholder has to be chosen here and not once at
             // build time, or a locked wallet claims the OAuth clients are gone.
             Cols.placeholder(table, core.keyring.unlocked(),
                     "No OAuth clients yet. Give one a short id below and upload its credentials.json.");
-            table.setItems(FXCollections.observableArrayList(core.orgs()));
+            var all = core.orgs();
+            table.setItems(FXCollections.observableArrayList(all));
+            var said = all.stream()
+                    .flatMap(o -> java.util.stream.Stream.of(o.expiryHint(), o.retirementWarning())
+                            .filter(java.util.Objects::nonNull).map(w -> o.id() + ": " + w))
+                    .toList();
+            warnings.text(String.join("\n\n", said));
+            warnings.style(said.isEmpty() ? "" : "-fx-text-fill: #b71c1c; -fx-background-color: #fdecea;"
+                    + " -fx-padding: 6; -fx-font-size: 11px;");
+            warnings.attr(l -> l.setVisible(!said.isEmpty()));
         };
         refresh.run();
 
@@ -163,7 +190,8 @@ public final class OrgsPane {
                                 + " power to refuse a foreign client id.")
                                 .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"))
                 .add(table)
-                .nodes(hbox().spacing(6).nodes(label("id"), id, label("name"), labelField),
+                .nodes(warnings,
+                        hbox().spacing(6).nodes(label("id"), id, label("name"), labelField),
                         label("Domains this client answers for")
                                 .style("-fx-font-size: 11px; -fx-font-weight: bold;"),
                         domains,
@@ -183,11 +211,17 @@ public final class OrgsPane {
                         + "client id:      " + (o.clientId() == null ? "(none)" : o.clientId()) + "\n"
                         + "created under:  " + (o.owner() == null ? "(unknown)" : o.owner()) + "\n"
                         + "accounts using: " + o.accounts() + "\n"
-                        + "added:          " + Cols.stamp(o.addedAt()) + "\n\n"
-                        + "domains answered for:\n  "
+                        + "added:          " + Cols.stamp(o.addedAt()) + "\n"
+                        + "last used:      " + (o.lastExercisedAt() <= 0 ? "never by this wallet"
+                           : Cols.stamp(o.lastExercisedAt())) + "\n"
+                        + "token lives:    " + (o.lives().isEmpty() ? "(none recorded yet)"
+                           : o.lives().stream().map(d -> d + "d").reduce((a, b) -> a + ", " + b).orElse(""))
+                        + "\n\ndomains answered for:\n  "
                         + (o.domains().isEmpty() ? "(none — accounts must name --org)"
                            : String.join("\n  ", o.domains()))
-                        + (bad.isEmpty() ? "" : "\n\nPATTERN PROBLEMS:\n  " + bad));
+                        + (bad.isEmpty() ? "" : "\n\nPATTERN PROBLEMS:\n  " + bad)
+                        + (o.expiryHint() == null ? "" : "\n\n" + o.expiryHint())
+                        + (o.retirementWarning() == null ? "" : "\n\n" + o.retirementWarning()));
         tip.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 11px;");
         tip.setShowDelay(javafx.util.Duration.millis(400));
         tip.setShowDuration(javafx.util.Duration.seconds(60));

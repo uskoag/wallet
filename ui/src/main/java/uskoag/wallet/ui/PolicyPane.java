@@ -81,6 +81,10 @@ public final class PolicyPane {
         var revoke = button("Revoke selected  (Del)");
         var clear = button("Revoke all");
         var reload = button("Refresh");
+        // Same window the tray's "Open access for a while..." opens - reachable here too, because a
+        // tray icon that failed to appear (or that somebody simply cannot find) must not be the only
+        // door onto the one feature that answers "the approval nagging is too much".
+        var openAccess = button("Open access for a while…");
 
         Runnable doExtend = () -> {
             var picked = table.getSelectionModel().getSelectedItem();
@@ -122,6 +126,7 @@ public final class PolicyPane {
             }
         }));
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
+        openAccess.attr(b -> b.setOnAction(e -> OpenAccessWindow.show(core, refresh)));
 
         // Single keys throughout, no chords.
         table.setOnKeyPressed(e -> {
@@ -132,7 +137,8 @@ public final class PolicyPane {
         var pane = vbox().spacing(8).padding(12).nodes(
                         label("Standing permissions").style("-fx-font-weight: bold;"))
                 .add(table)
-                .nodes(hbox().spacing(6).nodes(label("Extend by:"), span, extend, revoke, clear, reload),
+                .nodes(hbox().spacing(6).nodes(label("Extend by:"), span, extend, revoke, clear, reload,
+                                openAccess),
                         status.wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"));
         return pane.node;
     }

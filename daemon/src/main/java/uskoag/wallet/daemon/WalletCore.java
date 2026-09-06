@@ -29,7 +29,16 @@ public final class WalletCore {
     public final TokenCache tokens = new TokenCache();
     public final Grants grants = new Grants();
     public final Audit audit = new Audit();
+    public final Requests requests = new Requests();
     public final ResourceNames names = new ResourceNames();
+
+    /**
+     * The daily readonly ping over every stored credential, and the memory of when it last ran.
+     *
+     * <p>Here rather than in the UI module because it reads the keyring and writes the audit, both of which
+     * belong to the engine. The UI owns only the timing and the passphrase prompt.
+     */
+    public final HealthSweep health = new HealthSweep(this);
 
     private static final java.util.concurrent.ScheduledExecutorService TIMER =
             java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
@@ -64,6 +73,7 @@ public final class WalletCore {
         else keyring.create(passphrase);
         settings.copyFrom(keyring.data().settings());
         audit.open(keyring.auditKey());
+        requests.open(audit.database(), keyring.auditKey());
 
         // The wallet used to keep a plain copy of each credentials.json beside the keyring as a
         // forgotten-passphrase safety net. It no longer does, and any left from before are removed here
@@ -89,6 +99,7 @@ public final class WalletCore {
         grants.clear();
         tokens.clear();
         names.clear();
+        requests.close();
         audit.close();
         keyring.lock();
         Log.info("locked");
@@ -155,7 +166,7 @@ public final class WalletCore {
                         (int) keyring.accountNames().stream()
                                 .filter(a -> keyring.anyFor(a).map(c -> o.id.equalsIgnoreCase(c.orgId)).orElse(false))
                                 .count(),
-                        o.addedAt))
+                        o.addedAt, o.lastExercisedAt, List.copyOf(o.observedLifeDays())))
                 .toList();
     }
 
@@ -173,7 +184,8 @@ public final class WalletCore {
                     g.map(x -> x.label()).orElse(c.group),
                     g.map(x -> x.detail()).orElse("hand-written scope set"),
                     c.scopes(), g.map(x -> x.tier()).orElse(uskoag.wallet.wire.Tier2.RESTRICTED),
-                    c.addedAt, c.lastUsed, c.useCount, c.order);
+                    c.addedAt, c.lastUsed, c.useCount, c.order,
+                    c.health(), c.healthNote, c.lastCheckedAt, c.lastHealthyAt, c.staleSince);
         }).toList();
     }
 
@@ -181,7 +193,7 @@ public final class WalletCore {
      * Issues a handle for one tool run. It deliberately does not choose a token: which token serves a
      * call depends on the API and the tier of that individual call, which is only knowable at the proxy.
      */
-    public AccessGrant access(AccessRequest req) {
+    public AccessGrant access(AccessRequest req, long peerPid) {
         if (!keyring.unlocked()) {
             gateway.unlockNeeded(req.appName() + " is asking for " + req.account());
             return AccessGrant.failed("wallet is locked, unlock it and retry");
@@ -190,11 +202,64 @@ public final class WalletCore {
         var account = resolve(req.account());
         if (account.isEmpty()) return AccessGrant.failed(noAccount(req.account()));
 
+        // Verified first, declared only as a fallback, and which of the two was used is recorded. The
+        // kernel's answer cannot be spoofed; the client's cannot be checked. Neither is allowed to refuse
+        // the call — failing closed here would block honest tools and stop nobody.
+        var verified = peerPid > 0;
+        var anchor = Anchors.resolve(verified ? peerPid : req.pid(), req.sourcePid());
+        if (anchor.warning() != null) Log.warn(anchor.warning());
+
+        var label = sessionLabel(req.session(), anchor, verified);
         var api = GApi.of(req.api());
         var g = grants.issue(account.get(), req.profile(), req.appName(), api.alias,
-                req.session(), req.pid(), req.caller());
+                anchor.known() ? anchor.id() : "unpinned-" + req.pid(), label, req.pid(), req.caller());
         return new AccessGrant(g.token(), "http://127.0.0.1:" + proxyPort + "/g/" + api.alias + "/",
-                account.get(), g.correlationCode(), 0L, null);
+                account.get(), g.correlationCode(), 0L, null, null).withWarning(anchor.warning());
+    }
+
+    /**
+     * The same resolution {@link #access} performs, reported instead of acted on.
+     *
+     * <p>Needs no unlock and grants nothing, so it can be asked at the moment something is behaving oddly
+     * — which is the only moment anybody wants it.
+     */
+    public uskoag.wallet.wire.SessionReport sessionReport(AccessRequest req, long peerPid) {
+        var declared = req == null ? 0 : req.sourcePid();
+        var verified = peerPid > 0;
+        var walkFrom = verified ? peerPid : (req == null ? 0 : req.pid());
+        var anchor = Anchors.resolve(walkFrom, declared);
+        var bound = -1;
+        if (keyring.unlocked() && anchor.known()) {
+            bound = (int) policy.rules().stream()
+                    .filter(r -> anchor.id().equals(r.session)).count();
+        }
+        return new uskoag.wallet.wire.SessionReport(anchor.id(), anchor.describe(), anchor.how(),
+                req == null ? null : req.session(), Anchors.describe(Anchors.chain(walkFrom)),
+                verified, walkFrom, declared, anchor.warning(), bound);
+    }
+
+    /**
+     * What a person is shown for "which run of work is this": the name the run gave itself, and the
+     * process it was pinned to. Both, because either alone leaves a question. A name with no process
+     * cannot be told from the same name exported in another terminal, and a process with no name is an
+     * exe and a number.
+     */
+    private static String sessionLabel(String exported, Anchor anchor, boolean verified) {
+        var where = anchor.describe() + (verified ? "" : " (unverified)");
+        return usable(exported) ? exported + " · " + where : where;
+    }
+
+    /**
+     * A label worth showing. Not blank, and not one of the old derived ids.
+     *
+     * <p>Tools built before this change compute {@code anc-<pid>-<millis>} in their own process and send
+     * it as the session. It is no longer an identity here — the wallet resolves that itself — and putting
+     * it on screen as the run's NAME would be worse than showing nothing: it is exactly the string whose
+     * instability caused the fragmentation, and it would read as though somebody had chosen it. So it is
+     * dropped, and such a tool simply shows the process it was pinned to until it is rebuilt.
+     */
+    private static boolean usable(String label) {
+        return label != null && !label.isBlank() && !label.matches("anc-\\d+-\\d+");
     }
 
     /**

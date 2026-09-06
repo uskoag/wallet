@@ -28,6 +28,9 @@ public final class Needs {
             // edit. Asking for the narrower thing is the point: an export must never be served by a
             // token that could also rewrite the deck it is rendering.
             case "slidesexport" -> List.of("https://www.googleapis.com/auth/drive.readonly");
+            // Only the full scope is ever issued (see Groups.CALENDAR_FULL) — no narrower calendar.events
+            // token exists yet to prefer for a plain read, so every tier needs the same one scope.
+            case "calendar" -> List.of("https://www.googleapis.com/auth/calendar");
             case "gmail" -> tier == Tier.READ
                     ? List.of("https://www.googleapis.com/auth/gmail.readonly")
                     : List.of("https://www.googleapis.com/auth/gmail.modify");

@@ -157,8 +157,26 @@ public final class ResourceNames {
             case SLIDES_EXPORT -> GApi.SLIDES.upstream + "v1/presentations/" + e + "?fields=title";
             case DRIVE -> api.upstream + "drive/v3/files/" + e
                     + "?fields=name,mimeType,trashed,owners(emailAddress)&supportsAllDrives=true";
+            case CALENDAR -> calendarUrl(id);
             default -> null;
         };
+    }
+
+    /**
+     * The one id here that is sometimes two: {@code "<calendarId>/<eventId>"} for an event, a bare
+     * calendar id otherwise — see {@link uskoag.wallet.daemon.CalendarRules}. Each half is encoded on
+     * its own, never the compound string as a whole, or the "/" that separates them would come back as
+     * {@code %2F} and point nowhere.
+     */
+    private static String calendarUrl(String id) {
+        var slash = id.indexOf('/');
+        if (slash < 0) {
+            return GApi.CALENDAR.upstream + "calendar/v3/calendars/"
+                    + URLEncoder.encode(id, StandardCharsets.UTF_8) + "?fields=summary";
+        }
+        var calId = URLEncoder.encode(id.substring(0, slash), StandardCharsets.UTF_8);
+        var eventId = URLEncoder.encode(id.substring(slash + 1), StandardCharsets.UTF_8);
+        return GApi.CALENDAR.upstream + "calendar/v3/calendars/" + calId + "/events/" + eventId + "?fields=summary";
     }
 
     private static Named read(GApi api, String body) {
@@ -175,6 +193,7 @@ public final class ResourceNames {
             }
             case DOCS -> named(str(o, "title"), "document");
             case SLIDES, SLIDES_EXPORT -> named(str(o, "title"), "presentation");
+            case CALENDAR -> named(str(o, "summary"), "calendar#event".equals(str(o, "kind")) ? "event" : "calendar");
             case DRIVE -> {
                 var kind = kindOf(str(o, "mimeType"));
                 var owner = owner(o);

@@ -17,20 +17,9 @@ public final class SlidesRules {
         var res = resource(f);
         if (f.reads()) return Classification.read("read", res);
         if (f.is("DELETE")) return Classification.destructive("delete", res, 1);
-        if (f.path().endsWith(":batchUpdate")) return batch(f, res);
+        if (f.path().endsWith(":batchUpdate")) return BatchRequests.rank(f, DESTRUCTIVE_KINDS, res);
         if (f.is("POST")) return Classification.mutate("create a presentation", res);
         return Classification.mutate("update", res);
-    }
-
-    private static Classification batch(RequestFacts f, ResourceRef res) {
-        var kinds = BatchRequests.kinds(f.body());
-        var bad = kinds.stream().filter(DESTRUCTIVE_KINDS::contains).toList();
-        if (bad.isEmpty()) {
-            return kinds.isEmpty()
-                    ? Classification.destructive("batch update (body unreadable)", res, 1)
-                    : Classification.mutate("batch update (" + kinds.size() + " requests)", res);
-        }
-        return Classification.destructive(String.join(", ", bad), res, bad.size());
     }
 
     static ResourceRef resource(RequestFacts f) {

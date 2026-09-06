@@ -51,6 +51,12 @@ public final class WalletApp extends Application {
         watch.setCycleCount(javafx.animation.Animation.INDEFINITE);
         watch.play();
 
+        // The daily readonly credential check. Started here rather than inside the engine because the two
+        // things it needs when the keyring is shut — a passphrase box, and someone to see it — only exist
+        // in this module. It watches for an unlocked wallet instead of scheduling an hour, so it runs at
+        // whatever moment the wallet happens to be open, including one somebody else caused.
+        HealthDaily.start(wallet.core);
+
         // Nothing on screen at startup, by default. The main window was appearing on every launch and
         // being closed again immediately, which is a step added to a thing that runs at boot; and the
         // passphrase is not asked for until something actually needs it, so starting the wallet costs
@@ -75,10 +81,11 @@ public final class WalletApp extends Application {
         }
 
         if (args.contains("--show")) {
-            UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), null);
+            UnlockWindow.show(wallet.core, () -> MainWindow.show(wallet.core), UnlockAsk.forTool(null));
         } else if (args.contains("--unlock")) {
             UnlockWindow.show(wallet.core, () -> Tray.note(uskoag.wallet.wire.Brand.NAME,
-                    "Unlocked. Tools on this machine can now reach Google through it."), null);
+                    "Unlocked. Tools on this machine can now reach Google through it."),
+                    UnlockAsk.forTool(null));
         } else {
             Tray.note(uskoag.wallet.wire.Brand.NAME, "Running, and locked. The passphrase is asked for when a tool"
                     + " first needs it.");
@@ -218,7 +225,7 @@ public final class WalletApp extends Application {
             Tray.state(true, null);
             Tray.note(uskoag.wallet.wire.Brand.NAME,
                     "Unlocked. Tools on this machine can now reach Google through it.");
-        }, null);
+        }, UnlockAsk.forTool(null));
     }
 
     private void lock() {

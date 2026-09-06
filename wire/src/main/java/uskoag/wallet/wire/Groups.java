@@ -83,16 +83,31 @@ public final class Groups {
             "https://www.googleapis.com/auth/gmail.settings.basic",
             "https://www.googleapis.com/auth/gmail.settings.sharing");
 
+    /**
+     * One group and not a READ/WRITE split like Mail and Drive, because {@code uskoag-gcalendarcli} is
+     * the only consumer today and it needs the full scope throughout: creating/deleting a calendar and
+     * changing its sharing (ACL) have no narrower scope to fall back to, the same way Drive sells no
+     * write-without-delete. Split this if a read-only calendar consumer ever shows up.
+     */
+    public static final ScopeGroup CALENDAR_FULL = ScopeGroup.of("calendar.full",
+            "Calendar: full access",
+            "Read and change every calendar and event, invite people, create or permanently delete a"
+                    + " calendar, and change who it is shared with. Nothing narrower covers calendar"
+                    + " management or sharing (ACL) — only the events themselves have a narrower scope.",
+            Tier2.SENSITIVE,
+            55,
+            "https://www.googleapis.com/auth/calendar");
+
     private Groups() {
     }
 
     public static List<ScopeGroup> all() {
-        return List.of(DOCS, DRIVE_READ, DRIVE_FILE, DRIVE_FULL, MAIL_READ, MAIL_WRITE, MAIL_SETTINGS);
+        return List.of(DOCS, DRIVE_READ, DRIVE_FILE, DRIVE_FULL, MAIL_READ, MAIL_WRITE, MAIL_SETTINGS, CALENDAR_FULL);
     }
 
     /** The display tree: heading, then its groups. Order is the order the Grant dialog shows. */
     public static List<String> headings() {
-        return List.of("Documents", "Drive", "Mail");
+        return List.of("Documents", "Drive", "Mail", "Calendar");
     }
 
     public static List<ScopeGroup> under(String heading) {
@@ -100,6 +115,7 @@ public final class Groups {
             case "Documents" -> List.of(DOCS);
             case "Drive" -> List.of(DRIVE_FILE, DRIVE_READ, DRIVE_FULL);
             case "Mail" -> List.of(MAIL_READ, MAIL_WRITE, MAIL_SETTINGS);
+            case "Calendar" -> List.of(CALENDAR_FULL);
             default -> List.of();
         };
     }

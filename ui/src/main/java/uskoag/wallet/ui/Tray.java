@@ -50,7 +50,13 @@ public final class Tray {
 
     public static void install(Runnable onOpen, Runnable onUnlock, Runnable onLock, Runnable onRevokeAll,
                                Runnable onOpenAccess) {
-        if (!SystemTray.isSupported()) return;
+        if (!SystemTray.isSupported()) {
+            uskoag.wallet.daemon.Log.warn("SystemTray.isSupported() is false in this launch context - "
+                    + "no tray icon will appear. On macOS this is usually a launchd session-type issue "
+                    + "(agent not attached to the Aqua/GUI session), not a missing feature.");
+            return;
+        }
+        uskoag.wallet.daemon.Log.info("SystemTray supported, installing tray icon");
         var menu = new PopupMenu();
         menu.add(item("Open wallet", onOpen));
         unlockItem = item("Unlock…", onUnlock);
@@ -80,7 +86,10 @@ public final class Tray {
         icon.addActionListener(e -> Platform.runLater(onOpen::run));
         try {
             SystemTray.getSystemTray().add(icon);
-        } catch (AWTException ignored) {
+            uskoag.wallet.daemon.Log.info("tray icon added");
+        } catch (AWTException e) {
+            uskoag.wallet.daemon.Log.error("SystemTray.add(icon) failed - tray reported supported but"
+                    + " would not accept the icon", e);
         }
     }
 

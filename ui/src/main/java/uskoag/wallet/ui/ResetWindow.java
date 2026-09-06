@@ -67,7 +67,7 @@ public final class ResetWindow {
             try {
                 Recovery.reset(core);
                 stage.close();
-                UnlockWindow.show(core, onUnlocked, "Old keyring moved aside. Set a new passphrase.");
+                UnlockWindow.show(core, onUnlocked, UnlockAsk.forTool("Old keyring moved aside. Set a new passphrase."));
             } catch (Exception e) {
                 status.text(String.valueOf(e.getMessage()));
             }
@@ -77,11 +77,11 @@ public final class ResetWindow {
         typed.attr(f -> f.setOnAction(e -> reset.run()));
         back.attr(b -> b.setOnAction(e -> {
             stage.close();
-            UnlockWindow.show(core, onUnlocked, null);
+            UnlockWindow.show(core, onUnlocked, UnlockAsk.forTool(null));
         }));
 
         var sc = scene(root.style(Ui.INK), 560, 400);
-        Ui.escCloses(sc, stage, () -> UnlockWindow.show(core, onUnlocked, null));
+        Ui.escCloses(sc, stage, () -> UnlockWindow.show(core, onUnlocked, UnlockAsk.forTool(null)));
         stage.setScene(sc);
         stage.setOnShown(e -> Platform.runLater(() -> {
             stage.toFront();

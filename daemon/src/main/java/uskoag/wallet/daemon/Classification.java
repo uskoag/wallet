@@ -25,6 +25,14 @@ public record Classification(Tier tier, String operation, ResourceRef resource, 
         return new Classification(Tier.MUTATE, op, r, 1);
     }
 
+    /**
+     * A reversible call that does many things at once. The count matters even here, because it is what an
+     * operation budget is charged, and a batch counted as one is a runaway loop's way around the budget.
+     */
+    public static Classification mutate(String op, ResourceRef r, int count) {
+        return new Classification(Tier.MUTATE, op, r, count);
+    }
+
     public static Classification destructive(String op, ResourceRef r, int count) {
         return new Classification(Tier.DESTRUCTIVE, op, r, count);
     }

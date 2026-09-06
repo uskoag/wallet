@@ -39,9 +39,11 @@ public final class SettingsPane {
         var mutateRule = checkBox("Changing a document needs a standing permission");
         var destructivePhrase = checkBox("Irreversible operations re-ask for the passphrase");
         var openBrowser = checkBox("Open the default browser automatically during consent");
+        var dailyHealth = checkBox("Check every credential once a day, read-only");
 
         var ops = textField();
         var autoLock = textField();
+        var healthPrompt = textField();
         var status = label("");
 
         Runnable load = () -> {
@@ -49,8 +51,10 @@ public final class SettingsPane {
             ((CheckBox) mutateRule.node).setSelected(s.mutateRequiresRule);
             ((CheckBox) destructivePhrase.node).setSelected(s.destructiveNeedsPassphrase);
             ((CheckBox) openBrowser.node).setSelected(s.openBrowserAutomatically);
+            ((CheckBox) dailyHealth.node).setSelected(s.dailyHealthCheck);
             ((TextField) ops.node).setText(String.valueOf(s.destructiveOps));
             ((TextField) autoLock.node).setText(String.valueOf(s.autoLockMinutes));
+            ((TextField) healthPrompt.node).setText(String.valueOf(s.healthPromptMinutes));
             status.text("Loaded from the keyring. Nothing is written until you press Save.");
         };
         load.run();
@@ -64,6 +68,7 @@ public final class SettingsPane {
             try {
                 var wantedOps = positive(ops, "the operation budget");
                 var wantedLock = nonNegative(autoLock, "auto-lock");
+                var wantedPrompt = positive(healthPrompt, "the health prompt timeout");
 
                 s.readRequiresRule = ((CheckBox) readRule.node).isSelected();
                 s.mutateRequiresRule = ((CheckBox) mutateRule.node).isSelected();
@@ -71,6 +76,8 @@ public final class SettingsPane {
                 s.openBrowserAutomatically = ((CheckBox) openBrowser.node).isSelected();
                 s.destructiveOps = wantedOps;
                 s.autoLockMinutes = wantedLock;
+                s.dailyHealthCheck = ((CheckBox) dailyHealth.node).isSelected();
+                s.healthPromptMinutes = wantedPrompt;
                 core.saveSettings();
                 status.text("Saved into the keyring. Irreversible grants stop at "
                         + s.destructiveOps + " operations or "
@@ -119,6 +126,25 @@ public final class SettingsPane {
                                 + " hours does not trip it. This is the second lock and it answers a"
                                 + " different question from an approval: the approval says what may be"
                                 + " touched, this says for how long anything at all may be."),
+
+                label("Credential health").style("-fx-font-weight: bold;"),
+                dailyHealth,
+                note("Once a day, every stored credential is put in front of Google with read-only calls"
+                        + " only — the refresh token is exchanged, and one cheap read is made per API it"
+                        + " covers. Off means a credential Google has quietly stopped honouring is"
+                        + " discovered halfway through real work instead of at breakfast. It is also the"
+                        + " only thing keeping two six-month clocks moving: the one that revokes an unused"
+                        + " refresh token, and the one that deletes an unused OAuth client — which takes"
+                        + " credentials.json with it, and that cannot be rebuilt by consenting again."),
+                note("What it cannot do is stop the seven-day expiry a Cloud project still in Testing"
+                        + " applies to every token it issues. Nothing can, except publishing the app. The"
+                        + " Clients tab says which of your clients looks like it is in that state, and how"
+                        + " it worked that out."),
+                row("Hide the health passphrase box after minutes", healthPrompt,
+                        "This is the one prompt in the wallet with nothing waiting behind it, so it is also"
+                                + " the one that neither sits on top nor takes the caret off whatever you"
+                                + " are typing. Ignoring it costs nothing: the check runs the next time the"
+                                + " wallet is unlocked for any reason at all."),
 
                 label("Passphrase").style("-fx-font-weight: bold;"),
                 hbox().spacing(8).nodes(changePass),

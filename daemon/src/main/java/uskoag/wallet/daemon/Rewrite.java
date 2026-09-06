@@ -15,6 +15,18 @@ public final class Rewrite {
     private Rewrite() {
     }
 
+    /**
+     * The outbound counterpart, for a multipart batch envelope.
+     *
+     * <p>Each sub-request's request-line is built by the Google client from the loopback root it was
+     * given, so it carries the wallet's own {@code /g/<alias>} prefix into a body Google resolves against
+     * its own host — and every item comes back "could not be resolved". The alias is the wallet's
+     * invention, so taking it back out is the wallet's job.
+     */
+    public static byte[] outboundBatch(byte[] body, GApi api) {
+        return BatchEnvelope.of(body, api.alias).rewritten();
+    }
+
     /** An upstream absolute URL turned back into a loopback one, or the value untouched. */
     public static String inbound(String value, int proxyPort) {
         if (value == null || !value.startsWith("http")) return value;

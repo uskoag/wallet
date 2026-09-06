@@ -111,10 +111,18 @@ public final class Proxy {
             }
             var query = x.getRequestURI().getRawQuery();
 
-            var body = maybeRead(x);
+            var body = Bodies.of(x, PARSE_LIMIT, BatchEnvelope.isEnvelope("/" + path));
+            if (body.prefix() != null) {
+                // Said out loud rather than passed quietly. Above the limit nothing can be classified, so
+                // a batch this size goes upstream judged only by its URL, and an unclassified batch that
+                // looks like an approved one is the failure this whole layer exists to prevent.
+                Log.warn("request body on /" + path + " exceeds " + PARSE_LIMIT
+                        + " bytes — relayed in full, but classified without reading it");
+            }
             core.touch();
-            var facts = new RequestFacts(api.alias, effectiveMethod(x), "/" + path, query, body);
+            var facts = new RequestFacts(api.alias, effectiveMethod(x), "/" + path, query, body.readable());
             var classified = Rules.classify(facts);
+            body = rewriteBatch(body, facts, api, path);
             if (TRACE) {
                 Log.info("trace " + x.getRequestMethod() + " /" + path
                         + (query == null || query.isBlank() ? "" : "?" + query)
@@ -148,6 +156,10 @@ public final class Proxy {
                     ? ResourceNames.Named.resolved(res.label(), "listing and search")
                     : core.names.resolve(api, res.id(), grant.account(), bearer));
             var waitedNs = System.nanoTime() - gateStart;
+            // After the decision so the record carries it, and before the relay so a request that dies
+            // upstream is still recorded. Every defect found in this layer so far needed exactly this and
+            // had to be reconstructed with a bespoke probe each time.
+            core.requests.record(facts, body, classified, decision.allowed(), grant);
             if (!decision.allowed()) {
                 fail(x, 403, decision.why());
                 return;
@@ -188,17 +200,22 @@ public final class Proxy {
     }
 
     /**
-     * A command body is read so its verbs can be seen; anything else is left as a stream. This is the
-     * line that keeps large uploads fast and keeps document contents out of the policy layer entirely.
+     * Takes the wallet's own {@code /g/<alias>} prefix back out of a batch envelope's sub-request lines.
+     *
+     * <p>After classification, so what was judged is what arrived; before the relay, so what Google gets
+     * is a body it can resolve. A compressed envelope is left alone — no Google client sends one, and
+     * rewriting the decompressed copy while the header still says gzip would be worse than not rewriting.
      */
-    private static byte[] maybeRead(HttpExchange x) throws IOException {
-        var type = first(x, "Content-Type");
-        if (type == null || !type.toLowerCase().contains("json")) return null;
-        var declared = first(x, "Content-Length");
-        if (declared != null && Long.parseLong(declared) > PARSE_LIMIT) return null;
-        try (var in = x.getRequestBody()) {
-            return in.readNBytes(PARSE_LIMIT);
+    private static Bodies rewriteBatch(Bodies body, RequestFacts facts, GApi api, String path) {
+        if (!facts.is("POST") || !BatchEnvelope.isEnvelope(facts.path())) return body;
+        if (!body.rewritable()) {
+            if (body.readable() != null) {
+                Log.warn("batch envelope on /" + path + " could not be rewritten, so Google will reject"
+                        + " its sub-requests; it arrived encoded or too large");
+            }
+            return body;
         }
+        return body.withBuffered(Rewrite.outboundBatch(body.buffered(), api));
     }
 
     /**
