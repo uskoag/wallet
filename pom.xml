@@ -40,7 +40,7 @@
         <gson.ver>2.14.0</gson.ver>
 
         <javafx.ver>25.0.2</javafx.ver>
-        <luvjfx.ver>1.0-SNAPSHOT</luvjfx.ver>
+        <luvjfx.ver>1.0</luvjfx.ver>
 
         <compiler.plugin.ver>3.13.0</compiler.plugin.ver>
         <shade.plugin.ver>3.5.1</shade.plugin.ver>
