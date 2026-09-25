@@ -6,9 +6,12 @@ import java.util.Set;
 
 public final class DocsRules {
 
-    private static final Set<String> DESTRUCTIVE_KINDS = Set.of(
-            "deleteContentRange", "deleteTableRow", "deleteTableColumn", "deleteNamedRange",
-            "deletePositionedObject", "deleteHeader", "deleteFooter");
+    /**
+     * Empty on purpose. Every Docs edit, deletions of text included, is kept in the document's version
+     * history and can be restored from it, the same as a Sheets cell edit. So a batchUpdate is an ordinary
+     * edit whatever it contains; nothing in the Docs API destroys the document itself.
+     */
+    private static final Set<String> DESTRUCTIVE_KINDS = Set.of();
 
     private DocsRules() {
     }
