@@ -155,6 +155,7 @@ public final class ResourceNames {
             // The export host serves no metadata of its own, and the id is a presentation id, so the
             // name comes from the Slides API. Without this the dialog for a render would show a bare id.
             case SLIDES_EXPORT -> GApi.SLIDES.upstream + "v1/presentations/" + e + "?fields=title";
+            case DOCS_EXPORT -> GApi.DRIVE.upstream + "drive/v3/files/" + e + "?fields=name&supportsAllDrives=true";
             case DRIVE -> api.upstream + "drive/v3/files/" + e
                     + "?fields=name,mimeType,trashed,owners(emailAddress)&supportsAllDrives=true";
             case CALENDAR -> calendarUrl(id);
@@ -193,6 +194,7 @@ public final class ResourceNames {
             }
             case DOCS -> named(str(o, "title"), "document");
             case SLIDES, SLIDES_EXPORT -> named(str(o, "title"), "presentation");
+            case DOCS_EXPORT -> named(str(o, "name"), "document");
             case CALENDAR -> named(str(o, "summary"), "calendar#event".equals(str(o, "kind")) ? "event" : "calendar");
             case DRIVE -> {
                 var kind = kindOf(str(o, "mimeType"));

@@ -122,7 +122,12 @@ public final class Verbs {
             core.unlock(chars);
             return Json.of(Asks.Done.yes(core.keyring.data().orgs().size() + " org(s), "
                     + core.keyring.data().credentials().size() + " account(s) available"));
-        } catch (Exception e) {
+        } catch (Throwable e) {
+            if (core.keyring.unlocked()) {
+                Log.error("passphrase accepted, but finishing the unlock failed", e);
+                return Json.of(Asks.Done.no("the passphrase is right, but the wallet could not finish opening: " + e
+                        + " - restart uskoag-wallet (a jar rebuilt under a running wallet does this)"));
+            }
             return Json.of(Asks.Done.no(String.valueOf(e.getMessage())));
         } finally {
             java.util.Arrays.fill(chars, '\0');

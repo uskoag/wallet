@@ -59,6 +59,19 @@ public final class Groups {
             60,
             "https://www.googleapis.com/auth/drive");
 
+    /**
+     * Who did what to a file and when: edits, comments, renames, moves, shares, each with its actor. Read
+     * only, and separate from Drive read because it answers a different question (authorship, not
+     * content); uskoag-gdocscli uses it to say which people edited between two saved versions.
+     */
+    public static final ScopeGroup DRIVE_ACTIVITY = ScopeGroup.of("drive.activity",
+            "Drive: activity (who changed what, when)",
+            "Read the activity log of files the account can reach: who edited, commented, moved or"
+                    + " shared them, and when. Cannot read the files' content or change anything.",
+            Tier2.RESTRICTED,
+            35,
+            "https://www.googleapis.com/auth/drive.activity.readonly");
+
     public static final ScopeGroup MAIL_READ = ScopeGroup.of("mail.read",
             "Mail: read only",
             "Read messages, threads, labels and settings. Cannot change or send anything.",
@@ -102,7 +115,7 @@ public final class Groups {
     }
 
     public static List<ScopeGroup> all() {
-        return List.of(DOCS, DRIVE_READ, DRIVE_FILE, DRIVE_FULL, MAIL_READ, MAIL_WRITE, MAIL_SETTINGS, CALENDAR_FULL);
+        return List.of(DOCS, DRIVE_READ, DRIVE_FILE, DRIVE_FULL, DRIVE_ACTIVITY, MAIL_READ, MAIL_WRITE, MAIL_SETTINGS, CALENDAR_FULL);
     }
 
     /** The display tree: heading, then its groups. Order is the order the Grant dialog shows. */
@@ -113,7 +126,7 @@ public final class Groups {
     public static List<ScopeGroup> under(String heading) {
         return switch (heading) {
             case "Documents" -> List.of(DOCS);
-            case "Drive" -> List.of(DRIVE_FILE, DRIVE_READ, DRIVE_FULL);
+            case "Drive" -> List.of(DRIVE_FILE, DRIVE_READ, DRIVE_ACTIVITY, DRIVE_FULL);
             case "Mail" -> List.of(MAIL_READ, MAIL_WRITE, MAIL_SETTINGS);
             case "Calendar" -> List.of(CALENDAR_FULL);
             default -> List.of();

@@ -121,7 +121,17 @@ public final class UnlockWindow {
                 open = null;
                 openAsk = null;
                 if (onUnlocked != null) onUnlocked.run();
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                // The passphrase opened the keyring and something AFTER it failed (the audit database, a
+                // class missing from a jar rebuilt under this running wallet). Calling that a wrong
+                // passphrase sent a person round the prompt forever while the wallet was in fact open.
+                if (core.keyring.unlocked()) {
+                    uskoag.wallet.daemon.Log.error("passphrase accepted, but finishing the unlock failed", e);
+                    fail(status, first, confirm, "The passphrase is RIGHT, but the wallet could not finish opening: "
+                            + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : " - " + e.getMessage())
+                            + ". Quit and start uskoag-wallet again (a rebuilt jar under a running wallet does this).");
+                    return;
+                }
                 fail(status, first, confirm, "That did not unlock the keyring. Cleared - type it again."
                         + " Nothing was sent anywhere; the check is local.");
             } finally {

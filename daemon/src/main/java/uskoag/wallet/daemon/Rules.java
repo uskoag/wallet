@@ -19,6 +19,8 @@ public final class Rules {
             case "sheets" -> SheetsRules.classify(f);
             case "slides" -> SlidesRules.classify(f);
             case "slidesexport" -> SlidesRules.classifyExport(f);
+            case "docsexport" -> DocsRules.classifyExport(f);
+            case "driveactivity" -> DriveActivityRules.classify(f);
             case "docs" -> DocsRules.classify(f);
             case "gmail" -> GmailRules.classify(f);
             case "calendar" -> CalendarRules.classify(f);

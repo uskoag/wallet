@@ -27,7 +27,8 @@ public final class Needs {
             // Rendering a deck to PNG reads the file, so it is a Drive read and not a presentations
             // edit. Asking for the narrower thing is the point: an export must never be served by a
             // token that could also rewrite the deck it is rendering.
-            case "slidesexport" -> List.of("https://www.googleapis.com/auth/drive.readonly");
+            case "slidesexport", "docsexport" -> List.of("https://www.googleapis.com/auth/drive.readonly");
+            case "driveactivity" -> List.of("https://www.googleapis.com/auth/drive.activity.readonly");
             // Only the full scope is ever issued (see Groups.CALENDAR_FULL) — no narrower calendar.events
             // token exists yet to prefer for a plain read, so every tier needs the same one scope.
             case "calendar" -> List.of("https://www.googleapis.com/auth/calendar");
@@ -65,7 +66,8 @@ public final class Needs {
      */
     public static List<String> alternatives(String api, Tier tier) {
         return switch (api) {
-            case "drive", "slidesexport" -> List.of("https://www.googleapis.com/auth/drive");
+            case "drive", "slidesexport", "docsexport" -> List.of("https://www.googleapis.com/auth/drive");
+            case "driveactivity" -> List.of("https://www.googleapis.com/auth/drive.activity");
             case "gmail" -> List.of("https://www.googleapis.com/auth/gmail.modify");
             default -> List.of();
         };

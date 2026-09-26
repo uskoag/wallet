@@ -25,6 +25,28 @@ public final class DocsRules {
         return Classification.mutate("update", res);
     }
 
+
+    /**
+     * A saved version of a document, through the one URL Drive offers for it. The id travels in the query
+     * ({@code Export?id=...&revision=N}), not the path. Nothing else on the host is served.
+     */
+    public static Classification classifyExport(RequestFacts f) {
+        var res = new ResourceRef("docs", queryParam(f.query(), "id"), null);
+        if (res.id() == null) res = ResourceRef.browse("docs");
+        if (!f.reads() || !f.path().startsWith("/feeds/download/documents/export/Export")) {
+            return Classification.destructive("a non-export request on the docs export host", res, 1);
+        }
+        return Classification.read("read an earlier version", res);
+    }
+
+    private static String queryParam(String query, String key) {
+        if (query == null) return null;
+        for (var kv : query.split("&")) {
+            if (kv.startsWith(key + "=")) return java.net.URLDecoder.decode(kv.substring(key.length() + 1), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        return null;
+    }
+
     static ResourceRef resource(RequestFacts f) {
         return Ids.after(f.path(), "/documents/", "docs");
     }

@@ -38,7 +38,17 @@ public enum GApi {
      * host with a different URL shape, and {@link uskoag.wallet.daemon} refuses anything under it that is
      * not the export path, so a general-purpose passthrough to docs.google.com is not what got added.
      */
-    SLIDES_EXPORT("slidesexport", "https://docs.google.com/");
+    SLIDES_EXPORT("slidesexport", "https://docs.google.com/"),
+
+    /**
+     * The same host for the same reason, for documents: a saved version of a Doc can only be read through
+     * the export URL Drive hands out in {@code revisions.exportLinks}; the Docs API reads only the present.
+     * Refused for anything but that export path, see {@link uskoag.wallet.daemon}.
+     */
+    DOCS_EXPORT("docsexport", "https://docs.google.com/"),
+
+    /** Drive Activity v2: one read-only endpoint, activity:query, answering who did what to a file and when. */
+    DRIVE_ACTIVITY("driveactivity", "https://driveactivity.googleapis.com/");
 
     public final String alias, upstream;
 
