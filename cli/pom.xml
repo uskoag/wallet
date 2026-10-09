@@ -96,4 +96,39 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- The cmdtools launcher(s), built by jr-maven-plugin with the config baked in (replaces the .jrc):
+         mvn -Djrexe -Djr.installDir=<folder on PATH> package -->
+    <profiles>
+        <profile>
+            <id>jrexe</id>
+            <activation>
+                <property>
+                    <name>jrexe</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>io.github.jarrunner</groupId>
+                        <artifactId>jr-maven-plugin</artifactId>
+                        <version>1.2.0-SNAPSHOT</version>
+                        <executions>
+                            <execution>
+                                <id>uskoag-walletcli</id>
+                                <goals><goal>exe</goal></goals>
+                                <configuration>
+                                    <name>uskoag-walletcli</name>
+                                    <jar>C:\user\code\uskoag\wallet\cli\target\uskoag-walletcli.jar</jar>
+                                    <jvmMode>dll</jvmMode>
+                                    <aot>true</aot>
+                                    <vmArgs><vmArg>-Dfile.encoding=UTF-8</vmArg></vmArgs>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
