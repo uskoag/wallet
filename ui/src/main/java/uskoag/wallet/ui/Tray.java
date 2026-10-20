@@ -8,13 +8,16 @@ import java.awt.MenuItem;
 import java.awt.PopupMenu;
 import java.awt.SystemTray;
 import java.awt.TrayIcon;
+import java.awt.image.BaseMultiResolutionImage;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A tray presence so the wallet is reachable without leaving a window open.
  *
- * <p>AWT rather than JavaFX because JavaFX has no tray, and the icon is drawn here rather than shipped
- * as a resource so the shaded jar stays self-contained.
+ * <p>AWT rather than JavaFX because JavaFX has no tray. The icon comes from the jar (see AppIcon), with
+ * the lock state drawn over it here.
  */
 public final class Tray {
 
@@ -43,7 +46,7 @@ public final class Tray {
         shownUnlocked = unlocked;
         icon.setToolTip(uskoag.wallet.wire.Brand.NAME + (unlocked ? " — UNLOCKED" : " — LOCKED")
                 + (detail == null || detail.isBlank() ? "" : ": " + detail));
-        icon.setImage(badged(unlocked));
+        icon.setImage(current());
         if (lockItem != null) lockItem.setEnabled(unlocked);
         if (unlockItem != null) unlockItem.setEnabled(!unlocked);
     }
@@ -81,8 +84,10 @@ public final class Tray {
             System.exit(0);
         }));
 
-        icon = new TrayIcon(trayImage(), uskoag.wallet.wire.Brand.NAME, menu);
+        icon = new TrayIcon(current(), uskoag.wallet.wire.Brand.NAME, menu);
         icon.setImageAutoSize(true);
+        // A dark taskbar wants the dark set; Theme re-reads the setting every two seconds.
+        Theme.darkProperty().addListener((o, was, dark) -> icon.setImage(current()));
         icon.addActionListener(e -> Platform.runLater(onOpen::run));
         try {
             SystemTray.getSystemTray().add(icon);
@@ -100,10 +105,25 @@ public final class Tray {
      * application in a tray of thirty. Amber and not red: locked is the safe state and the correct resting
      * state, not a fault.
      */
-    private static Image badged(boolean unlocked) {
-        var base = trayImage();
-        var w = Math.max(16, base.getWidth(null));
-        var h = Math.max(16, base.getHeight(null));
+    /**
+     * The tray picture for the current theme and lock state: 16, 24 and 32 px in one image, so Windows draws
+     * the one that matches the display scaling (100% 16, 125% and 150% 24, 200% 32) rather than a blurred
+     * rescale of one. Badged once the state is known.
+     */
+    private static Image current() {
+        var bases = AppIcon.trayImages(Theme.isDark());
+        if (bases.isEmpty()) bases = List.of(dot());
+        var variants = new ArrayList<Image>();
+        for (var base : bases) variants.add(shownUnlocked == null ? base : badged(base, shownUnlocked));
+        return new BaseMultiResolutionImage(variants.toArray(new Image[0]));
+    }
+
+    /**
+     * The state badge sits top-left, because the icon's own bottom-right corner carries the amber lease mark.
+     */
+    private static Image badged(BufferedImage base, boolean unlocked) {
+        var w = base.getWidth();
+        var h = base.getHeight();
         var img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         var g = img.createGraphics();
         g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
@@ -116,14 +136,14 @@ public final class Tray {
         }
         var d = Math.max(6, w / 2);
         g.setColor(unlocked ? new java.awt.Color(0x2E, 0x7D, 0x32) : new java.awt.Color(0xE6, 0x8A, 0x00));
-        g.fillOval(w - d, h - d, d - 1, d - 1);
+        g.fillOval(0, 0, d - 1, d - 1);
         g.setColor(java.awt.Color.WHITE);
         g.setStroke(new java.awt.BasicStroke(Math.max(1f, w / 16f)));
         if (unlocked) {
-            g.drawLine(w - d + d / 4, h - d / 2, w - d / 2, h - d / 4 - 1);
-            g.drawLine(w - d / 2, h - d / 4 - 1, w - d / 5, h - d + d / 5);
+            g.drawLine(d / 4, d / 2, d / 2, d - d / 4 - 1);
+            g.drawLine(d / 2, d - d / 4 - 1, d - d / 5, d / 5);
         } else {
-            g.drawLine(w - d + d / 4, h - d / 2, w - d / 4 - 1, h - d / 2);
+            g.drawLine(d / 4, d / 2, d - d / 4 - 1, d / 2);
         }
         g.dispose();
         return img;
@@ -157,16 +177,8 @@ public final class Tray {
         return m;
     }
 
-    /** The real icon when it is in the jar, and a drawn one when it is not — never a reason to fail. */
-    private static Image trayImage() {
-        try (var in = Tray.class.getResourceAsStream("/icons/wallet-32.png")) {
-            if (in != null) return javax.imageio.ImageIO.read(in);
-        } catch (Exception ignored) {
-        }
-        return dot();
-    }
-
-    private static Image dot() {
+    /** Drawn stand-in when no icon is in the jar — never a reason to fail. */
+    private static BufferedImage dot() {
         var img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
         var g = img.createGraphics();
         g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
