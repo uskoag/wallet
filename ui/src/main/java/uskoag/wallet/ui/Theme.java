@@ -24,7 +24,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
  *
  * <p>Windows sends nothing a JavaFX app can hear when the theme changes, so the value is read again every
  * two seconds; one registry read is cheap. Anywhere but Windows, or if the read fails, the taskbar counts
- * as light. The same logic as leasegate's TaskbarTheme, copied rather than depended on.
+ * as light.
  */
 public final class Theme {
 
