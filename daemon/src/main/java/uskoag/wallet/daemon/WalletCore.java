@@ -115,6 +115,11 @@ public final class WalletCore {
         lastActivity = System.currentTimeMillis();
     }
 
+    /** When {@link #touch()} last ran: the idle trim reads it to know the wallet has gone quiet. */
+    public java.time.Instant lastActivity() {
+        return java.time.Instant.ofEpochMilli(lastActivity);
+    }
+
     /**
      * The second lock, and the reason it is worth having: an approval says <em>what</em> may be touched,
      * and this says <em>for how long anything at all</em> may be. Even a standing permission is useless

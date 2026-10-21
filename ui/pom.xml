@@ -133,7 +133,7 @@
                     <plugin>
                         <groupId>io.github.jarrunner</groupId>
                         <artifactId>jr-maven-plugin</artifactId>
-                        <version>1.2.0-SNAPSHOT</version>
+                        <version>1.3.0</version>
                         <executions>
                             <execution>
                                 <id>uskoag-wallet</id>
@@ -143,7 +143,10 @@
                                     <jar>C:\user\code\uskoag\wallet\ui\target\uskoag-wallet.jar</jar>
                                     <jvmMode>dll</jvmMode>
                                     <aot>true</aot>
-                                    <vmArgs><vmArg>--enable-native-access=ALL-UNNAMED</vmArg><vmArg>-Dfile.encoding=UTF-8</vmArg></vmArgs>
+                                    <!-- Memory (PRP 08): embeds ArcadeDB, so G1, always with its three caps; plain G1 on a 16-core
+                                         machine commits ~59 MB of its own bookkeeping. -Xmx leaves room for a Drive transfer in flight.
+                                         No G1PeriodicGC: the idle trim (Wallet.start) gives memory back once per idle stretch. -->
+                                    <vmArgs><vmArg>-Xms16m</vmArg><vmArg>-Xmx512m</vmArg><vmArg>-Xss512k</vmArg><vmArg>-XX:+UseG1GC</vmArg><vmArg>-XX:ParallelGCThreads=2</vmArg><vmArg>-XX:ConcGCThreads=1</vmArg><vmArg>-XX:MarkStackSize=64K</vmArg><vmArg>-XX:MinHeapFreeRatio=10</vmArg><vmArg>-XX:MaxHeapFreeRatio=30</vmArg><vmArg>-XX:TieredStopAtLevel=1</vmArg><vmArg>-XX:MaxMetaspaceSize=128m</vmArg><vmArg>-XX:ReservedCodeCacheSize=48m</vmArg><vmArg>--enable-native-access=ALL-UNNAMED</vmArg><vmArg>-Dfile.encoding=UTF-8</vmArg></vmArgs>
                                 </configuration>
                             </execution>
                         </executions>

@@ -20,6 +20,14 @@ public final class Ui {
 
     public static final String INK = "-fx-font-family: 'Segoe UI'; -fx-font-size: 13px;";
 
+    /** Background ticks for the tray and the daily check, so that no endless Timeline keeps JavaFX's frame clock running. */
+    static final java.util.concurrent.ScheduledExecutorService TICKS =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                var t = new Thread(r, "wallet-ui-ticks");
+                t.setDaemon(true);
+                return t;
+            });
+
     private Ui() {
     }
 

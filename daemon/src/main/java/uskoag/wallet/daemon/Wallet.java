@@ -28,6 +28,8 @@ public final class Wallet {
         var proxyPort = proxy.start();
         control.start(proxyPort);
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
+        // Idle almost all day: two quiet minutes, then one collection and the working set handed back.
+        leasegate.core.IdleTrim.start("uskoag-wallet", core::lastActivity, java.time.Duration.ofMinutes(2));
         if (!Dpapi.available()) {
             Log.warn("DPAPI is not available on this machine — the keyring falls back to passphrase-only"
                     + " encryption, which is still safe at rest but is no longer inert if copied elsewhere");
