@@ -20,6 +20,17 @@ public final class Ui {
 
     public static final String INK = "-fx-font-family: 'Segoe UI'; -fx-font-size: 13px;";
 
+    /**
+     * A tab's actions on function keys: they work from anywhere in the window while that tab is showing, and
+     * the tab's buttons, which wear the same keys, are left to the mouse (a focused button fires on Space).
+     */
+    static void functionKeys(javafx.scene.Node pane, java.util.Map<javafx.scene.input.KeyCode, Runnable> keys) {
+        var bound = new leasegate.frame.FKeys();
+        keys.forEach(bound::bind);
+        bound.install(pane);
+        leasegate.frame.Parts.mouseOnly(pane);
+    }
+
     /** Background ticks for the tray and the daily check, so that no endless Timeline keeps JavaFX's frame clock running. */
     static final java.util.concurrent.ScheduledExecutorService TICKS =
             java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {

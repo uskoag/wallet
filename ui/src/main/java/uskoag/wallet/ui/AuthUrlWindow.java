@@ -47,9 +47,9 @@ public final class AuthUrlWindow {
             });
 
             var status = label("");
-            var copy = button("Copy link").defaultButton(true);
-            var openIt = button("Open in default browser");
-            var close = button("Close").cancelButton(true);
+            var copy = button("F2  Copy link");
+            var openIt = button("F3  Open in default browser");
+            var close = button("Esc  Close");
 
             copy.attr(b -> b.setOnAction(e -> {
                 var content = new ClipboardContent();
@@ -76,11 +76,16 @@ public final class AuthUrlWindow {
                     box,
                     hbox().spacing(8).nodes(copy, openIt, close),
                     status.wrapText(true).style("-fx-text-fill: #1b5e20;"),
-                    label("Enter copies   |   Esc closes   |   this window closes itself when consent lands")
+                    label("F2 copies   |   F3 opens it   |   Esc closes   |   this window closes itself when consent lands")
                             .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
 
             var sc = Look.put(frame, root.style(Ui.INK).node(), 620, 340);
-            Ui.escCloses(sc, stage, null);
+            new leasegate.frame.FKeys()
+                    .bind(javafx.scene.input.KeyCode.F2, () -> ((javafx.scene.control.Button) copy.node).fire())
+                    .bind(javafx.scene.input.KeyCode.F3, () -> ((javafx.scene.control.Button) openIt.node).fire())
+                    .bind(javafx.scene.input.KeyCode.ESCAPE, stage::close)
+                    .install(sc);
+            leasegate.frame.Parts.mouseOnly(sc.getRoot());
             stage.setOnShown(e -> Platform.runLater(() -> {
                 stage.toFront();
                 stage.requestFocus();

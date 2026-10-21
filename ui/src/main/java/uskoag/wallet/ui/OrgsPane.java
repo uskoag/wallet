@@ -109,9 +109,9 @@ public final class OrgsPane {
                     ((TextArea) domains.node).setText(String.join("\n", picked.domains()));
                 });
 
-        var upload = button("Add / replace credentials.json  (A)");
-        var save = button("Save domains  (S)");
-        var remove = button("Remove client  (Del)");
+        var upload = button("F2  Add / replace credentials.json");
+        var save = button("F3  Save domains");
+        var remove = button("F4  Remove client");
         var reload = button("Refresh");
 
         upload.attr(b -> b.setOnAction(e -> {
@@ -163,16 +163,12 @@ public final class OrgsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
-        // Single keys, matching the other tabs. Only fires from the table itself, so typing a domain
-        // pattern containing an 'a' or an 's' in the box below cannot set one of these off.
-        table.setOnKeyPressed(e -> {
-            switch (e.getCode()) {
-                case DELETE -> ((javafx.scene.control.Button) remove.node).fire();
-                case A -> ((javafx.scene.control.Button) upload.node).fire();
-                case S -> ((javafx.scene.control.Button) save.node).fire();
-                default -> { }
-            }
-        });
+        // Function keys, bound on the scene (Ui.functionKeys): a letter typed into the domain box below, or into
+        // another program, must not set one of these off. Each is also the button that wears it.
+        var keys = java.util.Map.<javafx.scene.input.KeyCode, Runnable>of(
+                javafx.scene.input.KeyCode.F2, () -> ((javafx.scene.control.Button) upload.node).fire(),
+                javafx.scene.input.KeyCode.F3, () -> ((javafx.scene.control.Button) save.node).fire(),
+                javafx.scene.input.KeyCode.F4, () -> ((javafx.scene.control.Button) remove.node).fire());
 
         // The same question the Accounts tab answers on hover: everything about the row without having
         // to select it and read it out of four columns.
@@ -182,7 +178,7 @@ public final class OrgsPane {
             return row;
         });
 
-        return vbox().spacing(8).padding(12).nodes(
+        var pane = vbox().spacing(8).padding(12).nodes(
                         label("OAuth clients").style("-fx-font-weight: bold;"),
                         label("One credentials.json per Cloud project. Every account and every tool in the"
                                 + " organisation mints its tokens from it. One per org is what an unverified"
@@ -196,11 +192,12 @@ public final class OrgsPane {
                                 .style("-fx-font-size: 11px; -fx-font-weight: bold;"),
                         domains,
                         hbox().spacing(6).nodes(upload, save, remove, reload),
-                        label("In the table:   Del removes a client   ·   A adds or replaces its"
-                                + " credentials.json   ·   S saves the domains   ·   hover any row for"
-                                + " its full detail")
+                        label("F2 adds or replaces its credentials.json   ·   F3 saves the domains   ·"
+                                + "   F4 removes a client   ·   hover any row for its full detail")
                                 .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                         status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
+        Ui.functionKeys(pane, keys);
+        return pane;
     }
 
     private static javafx.scene.control.Tooltip tooltipFor(OrgInfo o) {

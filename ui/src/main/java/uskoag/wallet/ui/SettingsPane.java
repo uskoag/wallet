@@ -59,8 +59,8 @@ public final class SettingsPane {
         };
         load.run();
 
-        var save = button("Save").defaultButton(true);
-        var reload = button("Reload").cancelButton(true);
+        var save = button("F2  Save");
+        var reload = button("F3  Reload");
         var changePass = button("Change passphrase...");
         changePass.attr(b -> b.setOnAction(e -> PassphraseWindow.show(core)));
 
@@ -161,12 +161,18 @@ public final class SettingsPane {
         ((javafx.scene.control.ScrollPane) scroll.node).setFitToWidth(true);
         Cols.fill((javafx.scene.layout.Region) scroll.node);
 
-        return vbox().spacing(8).padding(12).nodes(
+        var pane = vbox().spacing(8).padding(12).nodes(
                         label("Settings").style("-fx-font-weight: bold;"),
                         label("Stored inside the keyring, not in a file beside it, because a setting that"
                                 + " can switch off a control has to be as protected as the control.")
                                 .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"))
                 .add(scroll.node).node;
+        // Function keys on the scene (Ui.functionKeys), not a default button: Enter must not save the settings
+        // that guard the wallet, and Esc must not reload over an edit.
+        Ui.functionKeys(pane, java.util.Map.<javafx.scene.input.KeyCode, Runnable>of(
+                javafx.scene.input.KeyCode.F2, () -> ((javafx.scene.control.Button) save.node).fire(),
+                javafx.scene.input.KeyCode.F3, () -> ((javafx.scene.control.Button) reload.node).fire()));
+        return pane;
     }
 
     private static luvjfx.FxVBox row(String title, luvjfx.FxTextField field, String why) {

@@ -69,7 +69,7 @@ public final class PolicyPane {
                 status.text("LOCKED — the standing rules cannot be read. This is not zero rules.");
                 return;
             }
-            status.text(rules.size() + " standing rule(s).   Del revokes   ·   E extends by the chosen span."
+            status.text(rules.size() + " standing rule(s).   F3 revokes   ·   F2 extends by the chosen span."
                     + "   Ceilings, measured from now and not raisable: read "
                     + Span.describe(Tier.READ.maxMinutes) + ", change "
                     + Span.describe(Tier.MUTATE.maxMinutes) + ", irreversible "
@@ -77,8 +77,8 @@ public final class PolicyPane {
         };
         refresh.run();
 
-        var extend = button("Extend selected");
-        var revoke = button("Revoke selected  (Del)");
+        var extend = button("F2  Extend selected");
+        var revoke = button("F3  Revoke selected");
         var clear = button("Revoke all");
         var reload = button("Refresh");
         // Same window the tray's "Open access for a while..." opens - reachable here too, because a
@@ -128,11 +128,9 @@ public final class PolicyPane {
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
         openAccess.attr(b -> b.setOnAction(e -> OpenAccessWindow.show(core, refresh)));
 
-        // Single keys throughout, no chords.
-        table.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.DELETE) doRevoke.run();
-            if (e.getCode() == KeyCode.E) doExtend.run();
-        });
+        // Function keys, bound on the scene (Ui.functionKeys): a letter or Delete can arrive from typing meant for
+        // another program, and these extend and revoke permissions.
+        var keys = java.util.Map.<KeyCode, Runnable>of(KeyCode.F2, doExtend, KeyCode.F3, doRevoke);
 
         var pane = vbox().spacing(8).padding(12).nodes(
                         label("Standing permissions").style("-fx-font-weight: bold;"))
@@ -140,6 +138,7 @@ public final class PolicyPane {
                 .nodes(hbox().spacing(6).nodes(label("Extend by:"), span, extend, revoke, clear, reload,
                                 openAccess),
                         status.wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #666;"));
+        Ui.functionKeys(pane.node, keys);
         return pane.node;
     }
 

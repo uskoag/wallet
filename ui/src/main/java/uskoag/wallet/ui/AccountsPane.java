@@ -131,12 +131,12 @@ public final class AccountsPane {
                             + "\n\nScopes:\n  " + String.join("\n  ", t.scopes()));
         });
 
-        var grant = button("Grant...  (G)");
-        var reauth = button("Re-authenticate  (R)");
-        var checkHealth = button("Check health now  (H)");
-        var remove = button("Remove token  (Del)");
-        var up = button("Prefer sooner  (U)");
-        var down = button("Prefer later  (D)");
+        var grant = button("F2  Grant...");
+        var reauth = button("F3  Re-authenticate");
+        var checkHealth = button("F4  Check health now");
+        var remove = button("F8  Remove token");
+        var up = button("F6  Prefer sooner");
+        var down = button("F7  Prefer later");
         var removeUnused = button("Remove unused...");
         var unusedDays = textField();
         ((TextField) unusedDays.node).setPrefColumnCount(4);
@@ -344,19 +344,15 @@ public final class AccountsPane {
 
         reload.attr(b -> b.setOnAction(e -> refresh.run()));
 
-        // Single keys, no chords. Every one of these is also a button — the keys are the fast path for
-        // someone already in the table, not the only way to reach the action.
-        tree.setOnKeyPressed(e -> {
-            switch (e.getCode()) {
-                case DELETE -> doRemove.run();
-                case U -> move.accept(-1);
-                case D -> move.accept(1);
-                case G -> doGrant.run();
-                case R -> doReauth.run();
-                case H -> doCheck.run();
-                default -> { }
-            }
-        });
+        // Function keys, bound on the scene (Ui.functionKeys): a letter or Delete can arrive from typing meant for
+        // another program, and these grant, re-consent and remove tokens. Each is also the button that wears it.
+        var keys = java.util.Map.<javafx.scene.input.KeyCode, Runnable>of(
+                javafx.scene.input.KeyCode.F2, doGrant,
+                javafx.scene.input.KeyCode.F3, doReauth,
+                javafx.scene.input.KeyCode.F4, doCheck,
+                javafx.scene.input.KeyCode.F6, () -> move.accept(-1),
+                javafx.scene.input.KeyCode.F7, () -> move.accept(1),
+                javafx.scene.input.KeyCode.F8, doRemove);
 
         // The detail box below already lists the scopes, but only for the selected row. Hovering answers
         // the question the table raises and the box cannot — "what does THAT one carry" — without
@@ -371,7 +367,7 @@ public final class AccountsPane {
         // window was dead space below the buttons.
         Cols.fill(tree);
 
-        return vbox().spacing(8).padding(12).nodes(
+        var pane = vbox().spacing(8).padding(12).nodes(
                 label("Accounts and tokens").style("-fx-font-weight: bold;"),
                 label("One token per scope group, so each expires on its own and an unused mail grant"
                         + " cannot take Sheets down with it. The narrowest token that covers a request is"
@@ -384,11 +380,13 @@ public final class AccountsPane {
                 hbox().spacing(6).nodes(remove, up, down, forget),
                 hbox().spacing(6).nodes(removeUnused, label("idle days (0 = never used)"), unusedDays,
                         googlePage, copy, reload),
-                label("In the table:   R re-authenticates   ·   H checks health now   ·   G grants   ·"
-                        + "   Del removes a token   ·   U prefers it sooner   ·   D prefers it later   ·"
+                label("F2 grants   ·   F3 re-authenticates   ·   F4 checks health now   ·"
+                        + "   F6 prefers a token sooner   ·   F7 later   ·   F8 removes a token   ·"
                         + "   hover any row for its exact scopes")
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                 status.wrapText(true).style("-fx-text-fill: #1b5e20;")).node;
+        Ui.functionKeys(pane, keys);
+        return pane;
     }
 
     /**
@@ -410,7 +408,7 @@ public final class AccountsPane {
         if (broken.isEmpty()) {
             var everChecked = core.accounts().stream().flatMap(a -> a.tokens().stream())
                     .anyMatch(t -> t.lastCheckedAt() > 0);
-            banner.text(everChecked ? "" : "Credential health has not been checked yet. Press H to check"
+            banner.text(everChecked ? "" : "Credential health has not been checked yet. Press F4 to check"
                     + " now, or leave it to the daily check.");
             banner.style("-fx-font-size: 11px; -fx-text-fill: #777;");
             banner.attr(l -> l.setVisible(!everChecked));
@@ -421,7 +419,7 @@ public final class AccountsPane {
         banner.text(broken.size() + " credential(s) are not working: "
                 + broken.stream().map(t -> t.account() + " / " + t.label()).distinct()
                 .reduce((a, b) -> a + "   ·   " + b).orElse("")
-                + ".   Select one and press R to re-authenticate."
+                + ".   Select one and press F3 to re-authenticate."
                 + (hint == null ? "" : "\n" + hint));
         banner.style("-fx-text-fill: #b71c1c; -fx-font-weight: bold;"
                 + " -fx-background-color: #fdecea; -fx-padding: 6;");
