@@ -28,10 +28,8 @@ public final class ResetWindow {
     }
 
     public static void show(WalletCore core, Runnable onUnlocked) {
-        var stage = new Stage();
-        stage.setAlwaysOnTop(true);
-        stage.setTitle(uskoag.wallet.wire.Brand.titled("start over"));
-        AppIcon.applyTo(stage);
+        var frame = Look.frame("start over", false);
+        var stage = frame.stage;
 
         var typed = textField().promptText(CONFIRM_WORD);
         var status = label("");
@@ -80,9 +78,8 @@ public final class ResetWindow {
             UnlockWindow.show(core, onUnlocked, UnlockAsk.forTool(null));
         }));
 
-        var sc = scene(root.style(Ui.INK), 560, 400);
+        var sc = Look.put(frame, root.style(Ui.INK).node(), 560, 400);
         Ui.escCloses(sc, stage, () -> UnlockWindow.show(core, onUnlocked, UnlockAsk.forTool(null)));
-        stage.setScene(sc);
         stage.setOnShown(e -> Platform.runLater(() -> {
             stage.toFront();
             stage.requestFocus();

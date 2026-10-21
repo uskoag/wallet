@@ -40,6 +40,17 @@
             <version>${luvjfx.ver}</version>
         </dependency>
 
+        <dependency>
+            <groupId>io.github.leasegate</groupId>
+            <artifactId>leasegate-frame</artifactId>
+            <version>0.2-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.leasegate</groupId>
+            <artifactId>leasegate-tray</artifactId>
+            <version>0.2-SNAPSHOT</version>
+        </dependency>
+
         <!-- The classifier carries the natives as well as the classes; the plain artifact alone
              cannot run from a shaded jar. -->
         <dependency>

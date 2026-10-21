@@ -88,7 +88,8 @@ public final class ApprovalPreview extends Application {
             var stage = approvalStage();
             if (stage == null) return report(c, "no window");
             var scene = stage.getScene();
-            var sp = (javafx.scene.control.ScrollPane) scene.getRoot();
+            // The window is framed now: the scroll pane sits inside the frame rather than being the root.
+            var sp = (javafx.scene.control.ScrollPane) scene.getRoot().lookup(".scroll-pane");
             var content = (javafx.scene.layout.Region) sp.getContent();
             try {
                 var img = scene.snapshot(null);

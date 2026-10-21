@@ -38,10 +38,8 @@ public final class GrantDialog {
     /** The chosen groups plus any hand-written scopes, or empty if cancelled. */
     public static Grant ask(String account) {
         var out = new AtomicReference<Grant>(null);
-        var stage = new Stage();
-        stage.setAlwaysOnTop(true);
-        stage.setTitle("Grant access - " + account);
-        AppIcon.applyTo(stage);
+        var frame = Look.frame("grant access: " + account, false);
+        var stage = frame.stage;
 
         var boxes = new ArrayList<CheckBox>();
         var groups = new ArrayList<ScopeGroup>();
@@ -156,12 +154,10 @@ public final class GrantDialog {
                 label("Space toggles   |   Tab moves   |   Enter grants   |   Esc cancels")
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
 
-        var sc = scene(root.style(Ui.INK), 640, 640);
+        var sc = Look.fit(frame, (javafx.scene.layout.Region) root.style(Ui.INK).node(), 640, null);
         Ui.escCloses(sc, stage, null);
-        stage.setScene(sc);
         // Sized to the scope list rather than to a guess: this window is as tall as the account's consents
         // make it, so 640 was dead space for a short list and off the screen edge for a long one.
-        Ui.fitToContent(stage, root.node, 640, null);
         stage.showAndWait();
         return out.get();
     }

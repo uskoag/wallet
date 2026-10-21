@@ -39,7 +39,7 @@
         <arcadedb.ver>26.7.3</arcadedb.ver>
         <gson.ver>2.14.0</gson.ver>
 
-        <javafx.ver>25.0.2</javafx.ver>
+        <javafx.ver>27</javafx.ver>
         <luvjfx.ver>1.0</luvjfx.ver>
 
         <compiler.plugin.ver>3.13.0</compiler.plugin.ver>

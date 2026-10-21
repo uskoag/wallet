@@ -38,18 +38,21 @@ public final class WalletApp extends Application {
             return;
         }
 
-        Tray.install(this::open, this::unlock, this::lock, this::revokeAll, this::openAccess);
-        Tray.state(wallet.core.keyring.unlocked(), null);
+        Tray.install(this::open, this::unlock, this::lock, this::revokeAll, this::openAccess,
+                () -> PassphraseWindow.show(wallet.core));
+        Tray.state(wallet.core.keyring.unlocked(), openAccessInForce(), null);
 
         // Polled, because the lock state changes from places this process never hears about: walletcli
         // lock and unlock, and the idle auto-lock — which is the one that matters, since by definition
         // nobody is watching when it fires. Five seconds is far below the granularity anyone notices and
-        // the check is a field read.
-        var watch = new javafx.animation.Timeline(new javafx.animation.KeyFrame(
-                javafx.util.Duration.seconds(5),
-                e -> Tray.state(wallet.core.keyring.unlocked(), null)));
-        watch.setCycleCount(javafx.animation.Animation.INDEFINITE);
-        watch.play();
+        // the check is a field read. A background timer, not a Timeline: an endless Timeline keeps JavaFX's
+        // frame clock running, which keeps an idle wallet's memory in RAM after the idle trim (PRP 08).
+        var shown = new java.util.concurrent.atomic.AtomicReference<String>("");
+        Ui.TICKS.scheduleWithFixedDelay(() -> {
+            var unlocked = wallet.core.keyring.unlocked();
+            var open = unlocked && openAccessInForce();
+            if (!(unlocked + ":" + open).equals(shown.getAndSet(unlocked + ":" + open))) Platform.runLater(() -> Tray.state(unlocked, open, null));
+        }, 5, 5, java.util.concurrent.TimeUnit.SECONDS);
 
         // The daily readonly credential check. Started here rather than inside the engine because the two
         // things it needs when the keyring is shut — a passphrase box, and someone to see it — only exist
@@ -199,7 +202,7 @@ public final class WalletApp extends Application {
             return;
         }
         UnlockWindow.show(wallet.core, () -> {
-            Tray.state(true, null);
+            Tray.state(true, openAccessInForce(), null);
             MainWindow.show(wallet.core);
         }, "Locked — the passphrase is needed before there is anything to show.");
     }
@@ -209,6 +212,21 @@ public final class WalletApp extends Application {
      * is visible in the Permissions tab immediately rather than at the next manual refresh — the whole
      * argument for this being a rule rather than a mode is that it can be seen and revoked.
      */
+    /**
+     * Whether a rule naming no document is in force: what the open-access window and {@code policy quiet}
+     * create. The tray glows harder while one is.
+     */
+    private boolean openAccessInForce() {
+        if (!wallet.core.keyring.unlocked()) return false;
+        var now = System.currentTimeMillis();
+        try {
+            return wallet.core.policy.rules().stream()
+                    .anyMatch(r -> (r.resource == null || r.resource.isBlank()) && !r.expired(now));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     private void openAccess() {
         OpenAccessWindow.show(wallet.core, () -> {
             if (MainWindow.isShowing()) MainWindow.show(wallet.core);
@@ -222,7 +240,7 @@ public final class WalletApp extends Application {
             return;
         }
         UnlockWindow.show(wallet.core, () -> {
-            Tray.state(true, null);
+            Tray.state(true, openAccessInForce(), null);
             Tray.note(uskoag.wallet.wire.Brand.NAME,
                     "Unlocked. Tools on this machine can now reach Google through it.");
         }, UnlockAsk.forTool(null));
@@ -231,7 +249,7 @@ public final class WalletApp extends Application {
     private void lock() {
         wallet.core.lock();
         MainWindow.hide();
-        Tray.state(false, null);
+        Tray.state(false, false, null);
         Tray.note(uskoag.wallet.wire.Brand.NAME, "Locked. Everything in flight has stopped.");
     }
 

@@ -63,9 +63,8 @@ public final class MainWindow {
             Ui.toFront(stage);
             return;
         }
-        stage = new Stage();
-        stage.setTitle(uskoag.wallet.wire.Brand.NAME);
-        AppIcon.applyTo(stage);
+        var frame = Look.frame("accounts, permissions and audit", true).notOnTop();
+        stage = frame.stage;
 
         var tabs = tabPane().attr(t -> {
             t.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
@@ -84,9 +83,8 @@ public final class MainWindow {
                         + "   ·   Esc hides this window; the wallet keeps running in the tray  ")
                         .style("-fx-font-size: 11px; -fx-text-fill: #666;"));
 
-        var sc = scene(root.style(Ui.INK), 860, 520);
+        var sc = Look.put(frame, root.style(Ui.INK).node(), 860, 520);
         Ui.escCloses(sc, stage, null);
-        stage.setScene(sc);
         Ui.toFront(stage);
     }
 

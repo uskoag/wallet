@@ -48,30 +48,15 @@ import static luvjfx.Fx.vbox;
  * <p>Colour tracks elevation, since that is judged before any word is read: green to read, amber to
  * change, red for anything that cannot be undone.
  *
- * <p><b>Every answer is one function key, pressed twice.</b> F2 F2 refuses, F4 F4 grants once, F6/F7/F8
- * grant a span. Nothing on this window is focusable and nothing is a default button, so Enter, Space and
- * Tab do nothing at all; the mouse still works for anyone who prefers it.
+ * <p><b>Every answer is one function key</b>, pressed once after the window has settled for two seconds:
+ * F2 or Esc refuses, F3 ticks breadth, F4 grants once, F6 and up grant a span. Function keys are keys
+ * that composing text never emits, so a window that raised itself over someone mid-sentence cannot be
+ * answered by the sentence — which is what happened when the widest span was the default button and the
+ * next Enter of a paragraph granted a seven-day permission. Nothing here is focusable and nothing is a
+ * default button, so Enter, Space and Tab do nothing; the mouse still works.
  *
- * <p>The two halves solve two different problems and neither is sufficient alone. <b>Function keys</b>
- * are keys that composing text never emits, so a window that raised itself over someone mid-sentence
- * cannot be answered by the sentence — which is precisely what happened before this: the widest span on
- * offer was the scene's default button and also held focus, so the next Enter or space of a paragraph
- * being typed granted a seven-day permission, reported as "the popup came and it just selected something
- * ... i have no clue". <b>Pressing twice</b> then covers the remaining case, a stray function key, and
- * carries a minimum gap so a held key cannot repeat its way through both presses, plus a short expiry so
- * an old arm cannot be completed minutes later. A first press says on screen what a second will do.
- *
- * <p>Every key that is <em>not</em> a function key goes into the confirmation code, which is the only
- * thing ordinary typing can reach and which grants nothing by itself. It exists for the breadth
- * checkbox: that is the one answer without a bound, since every other choice is limited by a span and a
- * tier ceiling while breadth means "and everything else this run touches". Four characters, case
- * insensitive, different every time and belonging to this request — so typing it is evidence the window
- * was read. Friction proportional to blast radius.
- *
- * <p>The irreversible tier is different in three ways, all of them because it cannot be undone: the
- * passphrase is asked for again, the spans stop at one day, and no code is asked for — the passphrase
- * already stands in front of everything, and demanding two proofs of one intent is how a control gets
- * resented and worked around.
+ * <p>The irreversible tier, and any grant that covers documents nobody named, asks for the passphrase
+ * again before anything can be granted, and its spans stop at one day.
  */
 public final class ApprovalWindow {
 
@@ -109,19 +94,7 @@ public final class ApprovalWindow {
      * enough that a person who is waiting for it does not notice. Nobody reads a permission question
      * and decides inside a second, so nothing legitimate is lost.
      */
-    private static final long SETTLE_MS = 1200;
-
-    /**
-     * The shortest gap that counts as two deliberate presses rather than one.
-     *
-     * <p>Without a floor, "press it twice" is satisfied by holding the key down: the OS repeats it, and
-     * a held key is the single most likely thing to arrive from someone who was typing. With a floor,
-     * repeat cannot arm and confirm — the second event has to be a separate physical press.
-     */
-    private static final long REARM_MIN_MS = 150;
-
-    /** How long an armed choice waits before forgetting itself, so an old arm cannot be completed later. */
-    private static final long ARM_WINDOW_MS = 3000;
+    private static final long SETTLE_MS = 2000;
 
     /**
      * Deliberately under the client's 300s read timeout in {@code GrantInitializer}. The wallet has to
@@ -172,10 +145,9 @@ public final class ApprovalWindow {
 
     private static Stage build(ApprovalAsk ask, WalletSettings settings, Predicate<char[]> verify,
                                Consumer<ApprovalAnswer> answer) {
-        var stage = new Stage();
+        var frame = Look.frame("approval", false);
+        var stage = frame.stage;
         stage.initModality(Modality.NONE);
-        stage.setAlwaysOnTop(true);
-        stage.setTitle(uskoag.wallet.wire.Brand.titled("approval"));
 
         var danger = ask.tier() == Tier.DESTRUCTIVE;
         var accent = accent(ask.tier());
@@ -226,26 +198,9 @@ public final class ApprovalWindow {
         var wide = checkBox("Apply to every item THIS ONE COMMAND touches");
         ((javafx.scene.control.CheckBox) wide.node).setSelected(false);
 
-        /*
-         * Breadth is the one answer that costs more than a keystroke, because it is the one answer that
-         * is open-ended: every other choice is bounded by a span and a tier ceiling, while this converts
-         * a single question into "and everything else this run touches". Friction proportional to blast
-         * radius.
-         *
-         * What it costs is typing the code already on screen — four characters, case-insensitive.
-         * Cheap, and it cannot be produced by not-reading: the code is different every time and belongs
-         * to this request, so typing it is evidence that this window was looked at. It is also where
-         * every non-function key goes, which is what makes the routing safe: the keys prose is made of
-         * can only ever reach a box that grants nothing on its own.
-         *
-         * On the irreversible tier the passphrase already stands in front of all of this, and asking for
-         * two proofs of the same intent is how a control gets resented and worked around. So there the
-         * code is not asked for at all.
-         */
-        var wanted = locked || ask.correlationCode() == null ? null
-                : ask.correlationCode().trim().toUpperCase(java.util.Locale.ROOT);
-        var codeEntry = label("");
-        var codeBuf = new StringBuilder();
+        // Breadth is a plain checkbox (F3). It used to cost typing the request code, and that
+        // extra step was answered by giving long open-access grants instead, which is wider than anything
+        // the checkbox can do. The passphrase still stands in front of the tiers that need it.
 
         Consumer<ApprovalAnswer> finish = a -> {
             answer.accept(a);
@@ -258,11 +213,9 @@ public final class ApprovalWindow {
         // would land on one.
         var settleUntil = new java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis() + SETTLE_MS);
 
-        // Every answer is one function key pressed twice. The keys are what makes it safe and the
-        // doubling is what makes it deliberate, and they solve different halves of the same problem:
-        // an F-key is a key that composing text never emits, so nothing typed at a window that stole
-        // focus can reach a choice at all; pressing it twice means even a stray F-key is not an answer.
-        // Neither grant nor deny is reachable by accident, and both cost one key.
+        // Every answer is one function key, pressed once after the window has settled: an F-key is a key
+        // that composing text never emits, so nothing typed at a window that stole focus can reach a
+        // choice, and the settle time swallows what was already in flight when it appeared.
         //
         // Deliberately no chord anywhere here — see the hand-pain note in the global instructions.
         var actions = new java.util.LinkedHashMap<KeyCode, Runnable>();
@@ -316,19 +269,10 @@ public final class ApprovalWindow {
         deny.cancelButton(false);
         ((javafx.scene.control.CheckBox) wide.node).setFocusTraversable(false);
         // The custom-span box is out of the Tab order too, so it cannot take INITIAL focus. It still
-        // focuses on a click, which is the only time anyone wants to type in it. If it held focus by
-        // default, the filter above would route typing into it instead of into the confirmation code, and
-        // the code — verified working — would silently stop filling.
+        // focuses on a click, which is the only time anyone wants to type in it.
         ((TextField) custom.node).setFocusTraversable(false);
-
-        // Where a code is asked for, the checkbox shows breadth rather than setting it: typing the code
-        // is the only way to turn it on. Left clickable it would be a one-click route around the very
-        // friction it was given, and a control with a documented cost and an undocumented free path is
-        // worse than one with no cost at all, because only the second is honest about what it is.
-        //
-        // On the irreversible tier there is no code — the passphrase already stands in front of
-        // everything — so there the box stays a real checkbox, enabled once the passphrase verifies.
-        if (wanted != null) ((javafx.scene.control.CheckBox) wide.node).setMouseTransparent(true);
+        // F3 ticks and unticks breadth, so the whole window answers from the keyboard.
+        ((javafx.scene.control.CheckBox) wide.node).setText("F3 · Apply to every item THIS ONE COMMAND touches");
 
         var spans = flowPane().attr(p -> {
             p.setHgap(6);
@@ -365,7 +309,7 @@ public final class ApprovalWindow {
                         // Names the likely mistake. This is the moment someone discovers they were unsure
                         // which secret was wanted, and "wrong, try again" does not resolve that.
                         gateNote.text("That is not this wallet's passphrase. Cleared — type it again."
-                                + " (It is the passphrase that unlocks the wallet, not the code above.)");
+                                + " (It is the passphrase that unlocks the wallet, not the request code above.)");
                         gateNote.style("-fx-font-size: 11px; -fx-text-fill: " + RED + ";");
                         return;
                     }
@@ -406,27 +350,15 @@ public final class ApprovalWindow {
                 .style("-fx-background-color: " + accent + "; -fx-text-fill: white; -fx-font-size: 13px;"
                         + " -fx-font-weight: bold; -fx-padding: 8 16 8 16;");
 
-        /*
-         * The big code needs a caption, and on the passphrase tiers it needs a disclaimer.
-         *
-         * On every tier below this one, the code shown here IS the thing you type — `wanted` is literally
-         * this string uppercased, and typing it is what turns breadth on. So the reflex the window itself
-         * teaches is "big code at the top, type it in the box". On the passphrase tiers there is no code
-         * to type and the box wants the wallet passphrase, but the layout is otherwise identical: big code,
-         * then a box. Someone who has answered a few of the ordinary ones will type the code into the
-         * passphrase field, be told it is wrong, and have the box cleared under them.
-         *
-         * Cheap to fix and worth fixing, because the cost of the confusion is paid on the one tier where
-         * a wrong entry is most expensive.
-         */
+        // The big code identifies which command is asking. On the passphrase tiers its caption says it is
+        // not what goes in the box, because big code then box invites typing the one into the other.
         var content = vbox().spacing(9).padding(18).nodes(
                 label(ask.correlationCode() == null ? "" : ask.correlationCode())
                         .style("-fx-font-size: 34px; -fx-font-weight: bold; -fx-text-fill: " + accent
                                 + "; -fx-font-family: 'Consolas';"),
                 label(locked
                         ? "request code — it identifies which command is asking. NOT what goes in the box below."
-                        : "request code — identifies which command is asking, and typing it is what widens"
-                          + " the answer")
+                        : "request code — identifies which command is asking")
                         .wrapText(true).style(locked
                         ? "-fx-font-size: 11px; -fx-text-fill: " + WARN + ";" : NOTE),
                 label(ask.headline()).style("-fx-font-size: 16px; -fx-font-weight: bold;").wrapText(true),
@@ -474,13 +406,6 @@ public final class ApprovalWindow {
                 // sat off the bottom edge and 31 approvals were answered one at a time without it ever
                 // being seen — which is the exact complaint it exists to answer.
                 wide.style("-fx-font-weight: bold;"),
-                (wanted == null
-                        ? label("Enabled by the passphrase above.")
-                                .style(NOTE)
-                        : hbox().spacing(8).nodes(
-                                label("To turn it on, type the code " + wanted + " :")
-                                        .style(NOTE),
-                                codeEntry.style("-fx-font-family: monospace; -fx-font-size: 13px;"))),
                 label("Off: this answer covers this one item — almost always what you want. On: it covers"
                         + " everything this command touches, for one action that spans many files (a folder"
                         + " move, a bulk share, creating a batch) where the buttons below would"
@@ -516,8 +441,8 @@ public final class ApprovalWindow {
                 // wrapText, because it did not fit and was being cut at "…remembers not…". A line whose
                 // whole job is to teach the keys was ending in an ellipsis on the one window where the
                 // keys are the entire interface. Costs a second line only when the width demands it.
-                label("Every answer is one function key, pressed twice   ·   Esc arms a denial"
-                        + "   ·   F4 F4 (\"Once\") allows just this call and remembers nothing")
+                label("Every answer is one function key   ·   Esc denies"
+                        + "   ·   F4 (\"Once\") allows just this call and remembers nothing")
                         .wrapText(true).style(NOTE),
                 closing.style(ASIDE));
 
@@ -526,206 +451,53 @@ public final class ApprovalWindow {
 
         deny.attr(b -> b.setOnAction(e -> finish.accept(ApprovalAnswer.deny())));
 
-        /*
-         * Sized to its content, then clamped to the screen. Not a hard-coded height, and not scrolling.
-         *
-         * Two fixed numbers were carried here for the same reason and both were wrong in both directions.
-         * Too small and a control falls off the bottom invisibly — that happened to the breadth checkbox and
-         * cost 31 approvals answered one at a time by someone who never saw it. So the numbers were raised;
-         * now the tiers that show fewer lines (a blanket grant has no checkbox, no hint and no code) open
-         * with a large empty panel. A constant cannot be right for a window whose content varies by tier, by
-         * whether a name resolved, and by how long a document's title is.
-         *
-         * Ui.fitToContent owns all of it now, including the scroll pane and whether its bar is ever shown —
-         * it is not, on any tier, on any ordinary screen. See the note there for why the first attempt at
-         * measuring came out short and scrolled anyway.
-         */
-        // Constructed directly rather than through Fx.scene, which takes a luvjfx wrapper; the helper is
-        // exactly `new Scene(root.node(), w, h)`, so nothing is lost. The height here is provisional and is
-        // replaced by the measurement below. The fill matches the tier tint so that a frame in which the
-        // content has not yet caught up with the window shows the window's own colour, not white.
-        var sc = new javafx.scene.Scene(root.node, WIDTH, 400);
-        sc.setFill(javafx.scene.paint.Color.web(tint(ask.tier())));
+        // Sized to its content inside the wallet's frame, held to the screen's height (Look.fit). The
+        // surface is the tier tint, so the colour is judged before any word is read.
+        var sc = Look.fit(frame, (javafx.scene.layout.Region) root.node, WIDTH, tint(ask.tier()));
+        frame.onClose(() -> finish.accept(ApprovalAnswer.deny()));
 
         // Keystrokes already in flight when the window appeared are not answers to a question nobody
-        // had read yet. This window raises itself over whatever someone is doing, so the keys arriving
-        // in the first moments belong to the sentence they were typing, not to the dialog — and the
-        // whole value of an approval is that it was a decision. A filter, so it runs before any button
-        // sees the event; ESC excepted, because refusing early is always safe and a run that is denied
-        // pauses cleanly and can be re-approved.
+        // had read yet, so for the first SETTLE_MS every key is swallowed. Esc then denies, F2 denies,
+        // F3 ticks breadth, and every other answer is its own function key, once.
         actions.put(KeyCode.F2, () -> finish.accept(ApprovalAnswer.deny()));
         keyNodes.put(KeyCode.F2, deny.node);
 
-        // One filter owns the whole keyboard, so nothing downstream can act on a key we did not route.
-        //
-        // Function keys are answers, pressed twice. Everything else — the keys prose is actually made
-        // of — goes into the confirmation code, which is the only thing typing can affect and which by
-        // itself grants nothing. Enter, Space and Tab do nothing at all.
-        var armed = new java.util.concurrent.atomic.AtomicReference<KeyCode>();
-        var armedAt = new java.util.concurrent.atomic.AtomicLong();
-
-        /*
-         * The first press has to be visible on the button it aims at.
-         *
-         * It was announced only as a line of text — "Press F6 again to …" — which is the right words in the
-         * wrong place: someone pressing F6 is looking at the F6 button, not at a status line further down
-         * the window. So the first press still read as nothing happening, on a window whose whole design
-         * assumes the first press is felt as deliberate.
-         *
-         * The glow DECAYS over exactly ARM_WINDOW_MS rather than switching off at the end of it, so it is
-         * not merely "a key is armed" but a reading of how much of the window is left. When it has gone,
-         * the next press starts over — which is what the code already did, invisibly.
-         *
-         * An effect and not a style string: styles here are set per button by the helper above, so mutating
-         * and restoring them risks losing the tier colouring. setEffect(null) is an exact undo.
-         */
-        var glowingNode = new java.util.concurrent.atomic.AtomicReference<javafx.scene.Node>();
-        var glowTimer = new javafx.animation.Timeline();
-        var armNote = new java.util.concurrent.atomic.AtomicReference<String>();
-
-        Runnable disarm = () -> {
-            glowTimer.stop();
-            var n = glowingNode.getAndSet(null);
-            if (n != null) n.setEffect(null);
-            armed.set(null);
-            // The instruction goes when it stops being true. It used to stay on screen indefinitely,
-            // telling someone to press a key again long after a second press would no longer count as one.
-            var note = armNote.getAndSet(null);
-            var shown = ((javafx.scene.control.Label) gateNote.node).getText();
-            if (note != null && note.equals(shown)) gateNote.text("");
-        };
-
-        java.util.function.Consumer<KeyCode> arm = code -> {
-            disarm.run();
-            var n = keyNodes.get(code);
-            if (n == null) return;
-            var shadow = new javafx.scene.effect.DropShadow(
-                    javafx.scene.effect.BlurType.GAUSSIAN, javafx.scene.paint.Color.web(AMBER), 24, 0.8, 0, 0);
-            n.setEffect(shadow);
-            glowingNode.set(n);
-            glowTimer.getKeyFrames().setAll(
-                    new javafx.animation.KeyFrame(javafx.util.Duration.ZERO,
-                            new javafx.animation.KeyValue(shadow.radiusProperty(), 24.0),
-                            new javafx.animation.KeyValue(shadow.spreadProperty(), 0.8)),
-                    new javafx.animation.KeyFrame(javafx.util.Duration.millis(ARM_WINDOW_MS),
-                            new javafx.animation.KeyValue(shadow.radiusProperty(), 0.0),
-                            new javafx.animation.KeyValue(shadow.spreadProperty(), 0.0)));
-            glowTimer.setOnFinished(x -> disarm.run());
-            glowTimer.playFromStart();
-        };
         sc.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
-            var now = System.currentTimeMillis();
-            if (now < settleUntil.get()) {
-                // The settle window owns every key including the text fields, because a keystroke that
-                // arrived before anyone could read this window is not aimed at anything on it.
+            if (System.currentTimeMillis() < settleUntil.get()) {
                 e.consume();
                 return;
             }
-
-            /*
-             * A focused text field keeps its own editing keys, and this is a correctness fix rather than
-             * a convenience.
-             *
-             * This filter used to consume KEY_PRESSED unconditionally. Character INSERTION survived that,
-             * because JavaFX inserts text on KEY_TYPED, which this filter never sees — so the passphrase
-             * box looked like it worked. Everything that EDITS is KEY_PRESSED though: BACK_SPACE, DELETE,
-             * the arrows, Home, End, select-all. All of it was swallowed before the field's own behaviour
-             * could run. So on the one tier that demands a secret typed exactly, a single mistyped
-             * character could not be corrected, and a wrong entry clears the box and says "type it again".
-             *
-             * It cost a real action: three consecutive attempts to share one document, 22:30:04, 22:31:12
-             * and 22:31:43, all three ending in DENY, because there was no way to fix a typo and no way
-             * forward. The audit shows it as three refusals, which reads as three decisions. It was one
-             * dead backspace key.
-             *
-             * Nothing is given away by allowing this. A text field grants nothing by itself — that is the
-             * premise the confirmation code already rests on — and function keys and ESC are still taken
-             * by the filter, so Deny stays reachable from the keyboard while the passphrase is being
-             * typed. The only focusable things here are the passphrase box and the custom-span field.
-             */
+            // A focused text field (the passphrase, the custom span) keeps its own editing keys, so a typo
+            // can be corrected; function keys and Esc still come here, so Deny is always reachable.
             var focused = sc.getFocusOwner();
             var editing = focused instanceof javafx.scene.control.TextInputControl t
                     && !t.isDisabled() && t.isEditable();
             if (editing && !e.getCode().isFunctionKey() && e.getCode() != KeyCode.ESCAPE) return;
-
             e.consume();
 
-            // Esc arms a refusal rather than performing one. The universal way out of a dialog stays
-            // where everyone expects it, without being the one reflex key that can answer by itself.
             var code = e.getCode() == KeyCode.ESCAPE ? KeyCode.F2 : e.getCode();
+            if (code == KeyCode.F3) {
+                var box = (javafx.scene.control.CheckBox) wide.node;
+                if (!box.isDisabled() && !blanket) box.setSelected(!box.isSelected());
+                return;
+            }
             var act = actions.get(code);
-
-            /*
-             * The passphrase gate has to hold against the KEYBOARD too, and it did not.
-             *
-             * gate() implements the gate as setDisable(true) on every granting button, which stops the
-             * mouse and stops the button's own key handling. It does not stop this filter, which calls the
-             * action's Runnable DIRECTLY — the lambda, not the button. So on the irreversible tier F4 F4 or
-             * F6 F6 answered the dialog with the passphrase box still empty, and the one control here that
-             * distinguishes a person from a process was two keypresses from being irrelevant. Open since
-             * the F-key redesign, because that redesign moved the real route to the keyboard and the gate
-             * stayed behind on the widgets.
-             *
-             * The lesson is the recorded one, again: a ceiling only one route respects is a suggestion.
-             * Deny is deliberately never disabled, so it passes this check and refusing stays possible at
-             * any moment, which is the one answer that must never be gated.
-             */
+            if (act == null) return;
+            // The passphrase gate holds against the keyboard too: a disabled button's action is not run
+            // by its key. Deny is never disabled, so refusing stays possible at any moment.
             var target = keyNodes.get(code);
-            if (act != null && target != null && target.isDisabled()) {
-                disarm.run();
+            if (target != null && target.isDisabled()) {
                 gateNote.text("The passphrase is required before this can be approved. Type it above.");
                 gateNote.style("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: " + RED + ";");
                 return;
             }
-
-            if (act == null) {
-                if (wanted == null) return;
-                var t = e.getText();
-                if (e.getCode() == KeyCode.BACK_SPACE) {
-                    if (codeBuf.length() > 0) codeBuf.deleteCharAt(codeBuf.length() - 1);
-                } else if (t != null && t.length() == 1 && Character.isLetterOrDigit(t.charAt(0))) {
-                    if (codeBuf.length() < wanted.length()) codeBuf.append(t.toUpperCase(java.util.Locale.ROOT));
-                } else {
-                    return;     // Enter, Space, Tab, arrows: nothing. They are not answers to anything.
-                }
-                var match = codeBuf.toString().contentEquals(wanted);
-                ((javafx.scene.control.CheckBox) wide.node).setSelected(match);
-                codeEntry.text(codeBuf.isEmpty() ? "" : codeBuf.toString());
-                codeEntry.style("-fx-font-family: monospace; -fx-font-size: 13px; -fx-text-fill: "
-                        + (match ? GREEN : WARN) + ";");
-                return;
-            }
-            if (armed.get() == code && now - armedAt.get() >= REARM_MIN_MS
-                    && now - armedAt.get() <= ARM_WINDOW_MS) {
-                disarm.run();
-                act.run();
-                return;
-            }
-            // Armed, not done. Shown on the button AND said in words, because a first press that appears to
-            // do nothing reads as a dead keyboard and gets hammered — which is the behaviour this is
-            // trying to prevent.
-            // arm() disarms whatever was armed before, which clears `armed` — so it runs FIRST and the new
-            // arming is recorded after it.
-            arm.accept(code);
-            armed.set(code);
-            armedAt.set(now);
-            var what = code == KeyCode.F2 ? "Deny" : labelFor(choices, code);
-            var note = "Press " + code.getName() + " again to " + what + ".";
-            armNote.set(note);
-            gateNote.text(note);
-            gateNote.style("-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: " + AMBER + ";");
+            act.run();
         });
-        stage.setOnCloseRequest(e -> answer.accept(ApprovalAnswer.deny()));
-        stage.setScene(sc);
-
-        Ui.fitToContent(stage, root.node, WIDTH, tint(ask.tier()));
 
         Ui.toFront(stage);
-        // Focus goes to the passphrase box when there is one — he asked for that, and a stray key there
-        // is a character in a field, which is harmless. Otherwise it goes to DENY. Focus has to land
-        // somewhere for keyboard use, and the only safe somewhere is the choice that costs nothing to
-        // get wrong: an accidental refusal pauses a run and says how to resume, an accidental grant is
-        // a standing permission nobody knows exists.
+        // Focus goes to the passphrase box when there is one, where a stray key is a harmless character.
+        // Otherwise to DENY: an accidental refusal pauses a run and says how to resume, an accidental grant
+        // is a standing permission nobody knows exists.
         (locked ? phrase.node : deny.node).requestFocus();
         countdown(stage, closing);
         return stage;

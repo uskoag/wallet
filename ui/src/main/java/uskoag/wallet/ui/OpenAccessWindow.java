@@ -84,11 +84,9 @@ public final class OpenAccessWindow {
             return;
         }
 
-        var stage = new Stage();
+        var frame = Look.frame("open access", false);
+        var stage = frame.stage;
         open = stage;
-        stage.setAlwaysOnTop(true);
-        stage.setTitle(uskoag.wallet.wire.Brand.titled("open access"));
-        AppIcon.applyTo(stage);
 
         var group = new ToggleGroup();
         var readOnly = radioButton("Read anything  —  list, open, download, export");
@@ -214,12 +212,10 @@ public final class OpenAccessWindow {
                         + " the Permissions tab and can be revoked there at any moment")
                         .wrapText(true).style("-fx-font-size: 11px; -fx-text-fill: #5b564f;"));
 
-        var sc = scene(body.style(Ui.INK), 560, 480);
+        var sc = Look.fit(frame, (javafx.scene.layout.Region) body.style(Ui.INK).node(), 560, "#ffffff");
         Ui.escCloses(sc, stage, () -> open = null);
-        stage.setScene(sc);
         // Content-sized like every other window here, because the ceiling note and the error line both wrap
         // to a second line and a fixed height is wrong in one direction or the other for each of them.
-        Ui.fitToContent(stage, body.node, 560, "#ffffff");
         Ui.grabFocus(stage, first.node);
     }
 

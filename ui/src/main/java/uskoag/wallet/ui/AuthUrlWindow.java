@@ -33,11 +33,9 @@ public final class AuthUrlWindow {
     public static void show(String account, String url) {
         Platform.runLater(() -> {
             if (open != null && open.isShowing()) open.close();
-            var stage = new Stage();
+            var frame = Look.frame("consent link: " + account, false);
+            var stage = frame.stage;
             open = stage;
-            stage.setAlwaysOnTop(true);
-            stage.setTitle("Consent link - " + account);
-            AppIcon.applyTo(stage);
 
             var box = textArea();
             box.attr(t -> {
@@ -81,9 +79,8 @@ public final class AuthUrlWindow {
                     label("Enter copies   |   Esc closes   |   this window closes itself when consent lands")
                             .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
 
-            var sc = scene(root.style(Ui.INK), 620, 340);
+            var sc = Look.put(frame, root.style(Ui.INK).node(), 620, 340);
             Ui.escCloses(sc, stage, null);
-            stage.setScene(sc);
             stage.setOnShown(e -> Platform.runLater(() -> {
                 stage.toFront();
                 stage.requestFocus();

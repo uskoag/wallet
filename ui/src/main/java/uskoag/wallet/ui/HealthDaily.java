@@ -1,10 +1,6 @@
 package uskoag.wallet.ui;
 
-import javafx.animation.Animation;
-import javafx.animation.KeyFrame;
-import javafx.animation.Timeline;
 import javafx.application.Platform;
-import javafx.util.Duration;
 import uskoag.wallet.daemon.Debug;
 import uskoag.wallet.daemon.Log;
 import uskoag.wallet.daemon.WalletCore;
@@ -39,12 +35,10 @@ public final class HealthDaily {
     private HealthDaily() {
     }
 
+    /** Ticks from a background timer onto the FX thread; an endless Timeline would keep JavaFX's frame clock running. */
     public static void start(WalletCore core) {
-        var timer = new Timeline(new KeyFrame(Duration.seconds(TICK_SECONDS), e -> tick(core)));
-        timer.setCycleCount(Animation.INDEFINITE);
-        timer.play();
-        var first = new Timeline(new KeyFrame(Duration.seconds(FIRST_TICK_SECONDS), e -> tick(core)));
-        first.play();
+        Ui.TICKS.scheduleWithFixedDelay(() -> Platform.runLater(() -> tick(core)),
+                FIRST_TICK_SECONDS, TICK_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     private static void tick(WalletCore core) {

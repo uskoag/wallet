@@ -13,6 +13,7 @@ import static luvjfx.Fx.hbox;
 import static luvjfx.Fx.label;
 import static luvjfx.Fx.passwordField;
 import static luvjfx.Fx.scene;
+import static luvjfx.Fx.textField;
 import static luvjfx.Fx.vbox;
 
 /**
@@ -46,10 +47,8 @@ public final class PassphraseWindow {
             return;
         }
 
-        var stage = new Stage();
-        stage.setAlwaysOnTop(true);
-        stage.setTitle(uskoag.wallet.wire.Brand.titled("change passphrase"));
-        AppIcon.applyTo(stage);
+        var frame = Look.frame("change passphrase", false);
+        var stage = frame.stage;
 
         var current = passwordField();
         var fresh = passwordField();
@@ -64,6 +63,10 @@ public final class PassphraseWindow {
         lettersOnly(fresh);
         lettersOnly(again);
         var status = label("");
+        var hint = textField().attr(f -> {
+            f.setText(PassphraseHint.read());
+            f.setPromptText("e.g. the name of its entry in your password manager");
+        });
 
         var go = button("Change it").defaultButton(true);
         var cancel = button("Cancel").cancelButton(true);
@@ -73,6 +76,18 @@ public final class PassphraseWindow {
             var one = ((PasswordField) fresh.node).getText().toCharArray();
             var two = ((PasswordField) again.node).getText().toCharArray();
             try {
+                if (one.length == 0 && two.length == 0) {
+                    // Only the hint: still proves the current passphrase, since the hint is shown to
+                    // whoever is at the locked wallet.
+                    if (!core.keyring.verify(now)) {
+                        fail(status, "The current passphrase is wrong.", current);
+                        return;
+                    }
+                    PassphraseHint.write(((javafx.scene.control.TextField) hint.node()).getText());
+                    stage.close();
+                    Tray.note(uskoag.wallet.wire.Brand.NAME, "The passphrase hint is saved.");
+                    return;
+                }
                 if (!Arrays.equals(one, two)) {
                     fail(status, "The two new entries did not match. The new boxes are cleared - type it again.",
                             fresh, again);
@@ -88,6 +103,7 @@ public final class PassphraseWindow {
                     return;
                 }
                 core.keyring.changePassphrase(now, one);
+                PassphraseHint.write(((javafx.scene.control.TextField) hint.node()).getText());
                 stage.close();
                 Tray.note(uskoag.wallet.wire.Brand.NAME, "Passphrase changed. Every stored token and the"
                         + " whole audit came across unchanged.");
@@ -118,15 +134,16 @@ public final class PassphraseWindow {
                 label("New passphrase (letters only - digits and symbols are dropped as you type," +
                         " case doesn't matter)"), fresh,
                 label("New passphrase again"), again,
+                label("Hint, shown on the unlock window (never the passphrase itself). To change only"
+                        + " the hint, leave both new boxes empty.").wrapText(true), hint,
                 status.wrapText(true).style("-fx-text-fill: #b71c1c;"),
                 hbox().spacing(8).nodes(go, cancel),
                 label("Enter moves to the next box, then changes it   |   Esc cancels   |   nothing is"
                         + " written to disk in clear")
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
 
-        var sc = scene(body.style(Ui.INK), 520, 430);
+        var sc = Look.put(frame, body.style(Ui.INK).node(), 520, 520);
         Ui.escCloses(sc, stage, null);
-        stage.setScene(sc);
         stage.setOnShown(e -> Platform.runLater(() -> Ui.grabFocus(stage, current.node)));
         Ui.grabFocus(stage, current.node);
     }

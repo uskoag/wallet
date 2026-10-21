@@ -71,12 +71,11 @@ public final class UnlockWindow {
             }
         }
         var creating = !core.keyring.exists();
-        var stage = new Stage();
+        var frame = Look.frame(creating ? "create keyring" : "unlock", false);
+        var stage = frame.stage;
         open = stage;
         openAsk = ask;
         stage.setAlwaysOnTop(ask.insistent());
-        stage.setTitle(uskoag.wallet.wire.Brand.titled(creating ? "create keyring" : "unlock"));
-        AppIcon.applyTo(stage);
 
         var first = passwordField();
         var confirm = passwordField();
@@ -158,6 +157,8 @@ public final class UnlockWindow {
                 ? "Passphrase (letters only - digits and symbols are dropped as you type, case doesn't matter)"
                 : ""), first);
         if (creating) body.nodes(label("Passphrase again"), confirm);
+        var hint = creating ? "" : PassphraseHint.read();
+        if (!hint.isEmpty()) body.nodes(label("Hint: " + hint).wrapText(true).style("-fx-font-size: 12px; -fx-text-fill: #555;"));
         var closing = label("");
         body.nodes(status.wrapText(true).style(REASON),
                 hbox().spacing(8).nodes(go, creating ? quit : forgot, creating ? label("") : quit),
@@ -168,7 +169,7 @@ public final class UnlockWindow {
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"),
                 closing.style("-fx-font-size: 10px; -fx-text-fill: #999;"));
 
-        var sc = scene(body.style(Ui.INK), 520, creating ? 380 : ask.blurb() == null ? 330 : 400);
+        var sc = Look.put(frame, body.style(Ui.INK).node(), 520, (creating ? 380 : ask.blurb() == null ? 330 : 400) + (hint.isEmpty() ? 0 : 30));
         // Esc hides, it does not quit. The wallet is a service now: every tool on this machine reaches
         // Google through it, so dismissing a dialog must not take the service down with it. Quit still
         // does exactly what it says.
@@ -176,7 +177,6 @@ public final class UnlockWindow {
             open = null;
             openAsk = null;
         });
-        stage.setScene(sc);
         idleClose(stage, closing, first, confirm, ask.idleSeconds());
         if (ask.insistent()) {
             stage.setOnShown(e -> Platform.runLater(() -> Ui.grabFocus(stage, first.node)));
