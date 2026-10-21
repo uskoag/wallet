@@ -19,9 +19,8 @@ package uskoag.wallet.wire;
  * @param caller       the directory the command was run in and the command itself — the two facts that
  *                     turn "some tool wants to write to a spreadsheet" into a question with an answer.
  *                     Shown, never acted on: see {@link CallerInfo}.
- * @param chain        the calling process and its ancestors, from the kernel. Empty when it could not be
- *                     read, and then the window can only offer an answer about this one document.
- * @param suggestedHop the ancestor the window selects first (usually the agent), or -1
+ * @param chain        the calling process and its ancestors, from the kernel, for the person to anchor the
+ *                     approval at one of them. Empty for the CLI's own policy verbs, which only confirm.
  */
 public record ApprovalAsk(
         String requestId,
@@ -39,8 +38,7 @@ public record ApprovalAsk(
         long pid,
         String session,
         boolean requiresPassphrase,
-        java.util.List<AncestryHop> chain,
-        int suggestedHop) {
+        java.util.List<AncestryHop> chain) {
 
     public ApprovalAsk {
         chain = chain == null ? java.util.List.of() : java.util.List.copyOf(chain);
@@ -51,7 +49,7 @@ public record ApprovalAsk(
                        String api, String operation, ResourceRef resource, String resourceKind, Tier tier,
                        int itemCount, CallerInfo caller, long pid, String session, boolean requiresPassphrase) {
         this(requestId, correlationCode, profile, appName, account, api, operation, resource, resourceKind, tier,
-                itemCount, caller, pid, session, requiresPassphrase, java.util.List.of(), -1);
+                itemCount, caller, pid, session, requiresPassphrase, java.util.List.of());
     }
 
     public String headline() {

@@ -5,8 +5,9 @@ import javafx.application.Platform;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import leasegate.core.access.PassphraseGate;
+import uskoag.wallet.daemon.Lineage;
 import uskoag.wallet.daemon.WalletSettings;
-import uskoag.wallet.wire.AncestryHop;
 import uskoag.wallet.wire.ApprovalAsk;
 import uskoag.wallet.wire.CallerInfo;
 import uskoag.wallet.wire.ResourceRef;
@@ -20,18 +21,14 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Renders every shape of the approval dialog to a PNG and prints its geometry, so the thing can be
- * LOOKED AT before it is shipped.
+ * Renders each shape of the approval windows to a PNG, so they can be looked at before they ship: a tool's
+ * request at each tier (the shared approval window, with this process's own chain, since that window
+ * withdraws itself when the requester is not alive), and the confirmations for rules typed at the wallet's
+ * command line.
  *
- * <p>It exists because this window has now been re-sized three times on description alone — too tall with
- * dead space, then too short with a scroll bar — and each revision was verified by asking someone to
- * trigger a real approval and say how it felt. The height depends on the tier, on whether Google returned
- * a document name, on how long that name is and on the display's scaling, so the only honest check is to
- * lay out all of those and measure them.
- *
- * <p>{@code mvn -o -pl ui exec:java -Dexec.classpathScope=test
- * -Dexec.mainClass=uskoag.wallet.ui.ApprovalPreview} — writes {@code ui/target/preview/*.png} and a line
- * per case saying whether it fits without scrolling. Windows do flash up on screen; that is the point.
+ * <p>{@code mvn -o test-compile exec:java -Dexec.classpathScope=test
+ * -Dexec.mainClass=uskoag.wallet.ui.ApprovalPreview} writes {@code ui/target/preview/*.png}. Windows do
+ * flash up on screen; that is the point.
  */
 public final class ApprovalPreview extends Application {
 
@@ -63,31 +60,18 @@ public final class ApprovalPreview extends Application {
     private static void shoot(PreviewCase c, WalletSettings settings) throws Exception {
         var closed = new CountDownLatch(1);
         var worker = new Thread(() -> {
-            ApprovalWindow.ask(c.ask(), settings, p -> new String(p).equals("test"));
+            FxGateway.ask(c.ask(), settings, PassphraseGate.external("test"::equals));
             closed.countDown();
         }, "ask");
         worker.setDaemon(true);
         worker.start();
 
-        // The FIRST window in a JVM stalls between show() and its first real pulse while Modena and the
-        // fonts load, so a short sample photographs a half-laid-out window and reports a size nobody will
-        // ever see. Generous, because a preview that lies is worse than a preview that is slow.
-        Thread.sleep(3000);
-        if (c.wrongPhrase() != null) {
-            Ui.onFx(() -> {
-                var stage = approvalStage();
-                if (stage != null && stage.getScene().lookup(".password-field")
-                        instanceof javafx.scene.control.PasswordField pf) {
-                    pf.setText(c.wrongPhrase());
-                    pf.fireEvent(new javafx.event.ActionEvent());
-                }
-                return null;
-            });
-            Thread.sleep(800);
-        }
+        // Wait for this case's window to appear (the first one in a JVM is slow), then past the settle time.
+        for (var i = 0; i < 100 && Ui.onFx(ApprovalPreview::shown) == null; i++) Thread.sleep(100);
+        Thread.sleep(2500);
         if (!c.keys().isEmpty()) {
             Ui.onFx(() -> {
-                var stage = approvalStage();
+                var stage = shown();
                 if (stage != null) for (var k : c.keys()) stage.getScene().getRoot().fireEvent(
                         new javafx.scene.input.KeyEvent(javafx.scene.input.KeyEvent.KEY_PRESSED, "", "", k,
                                 false, false, false, false));
@@ -96,128 +80,63 @@ public final class ApprovalPreview extends Application {
             Thread.sleep(500);
         }
         Ui.onFx(() -> {
-            var stage = approvalStage();
+            var stage = shown();
             if (stage == null) return report(c, "no window");
-            var scene = stage.getScene();
-            // The window is framed now: the scroll pane sits inside the frame rather than being the root.
-            var sp = (javafx.scene.control.ScrollPane) scene.getRoot().lookup(".scroll-pane");
-            var content = (javafx.scene.layout.Region) sp.getContent();
             try {
-                var img = scene.snapshot(null);
-                ImageIO.write(SwingFXUtils.fromFXImage(img, null), "png",
+                ImageIO.write(SwingFXUtils.fromFXImage(stage.getScene().snapshot(null), null), "png",
                         OUT.resolve(c.name() + ".png").toFile());
             } catch (Exception e) {
                 System.out.println("  snapshot failed: " + e);
             }
-            report(c, "stage " + (int) stage.getWidth() + "x" + (int) stage.getHeight()
-                    + "  scene " + (int) scene.getWidth() + "x" + (int) scene.getHeight()
-                    + "  content " + (int) content.getWidth() + "x" + (int) content.getHeight()
-                    + "  wasted " + (int) (scene.getHeight() - content.getHeight()) + "px"
-                    + "  bar " + sp.getVbarPolicy());
-            stage.close();
+            report(c, "stage " + (int) stage.getWidth() + "x" + (int) stage.getHeight());
+            // Denied with Esc rather than closed, so the window answers and the next case starts clean.
+            stage.getScene().getRoot().fireEvent(new javafx.scene.input.KeyEvent(
+                    javafx.scene.input.KeyEvent.KEY_PRESSED, "", "", javafx.scene.input.KeyCode.ESCAPE,
+                    false, false, false, false));
             return null;
         });
-        closed.await(5, TimeUnit.SECONDS);
+        if (!closed.await(5, TimeUnit.SECONDS)) System.out.println("  window did not answer Esc");
+        Thread.sleep(300);
     }
 
     private static Object report(PreviewCase c, String what) {
-        System.out.println(pad(c.name()) + what);
+        System.out.println((c.name() + "                        ").substring(0, 24) + what);
         return null;
     }
 
-    private static String pad(String s) {
-        return (s + "                        ").substring(0, 24);
-    }
-
-    private static Stage approvalStage() {
-        for (var w : Window.getWindows())
-            if (w instanceof Stage s && s.getTitle() != null && s.getTitle().contains("approval")) return s;
+    private static Stage shown() {
+        for (var w : Window.getWindows()) if (w instanceof Stage s && s.isShowing()) return s;
         return null;
     }
 
-    /**
-     * The shapes that actually differ in height: the three tiers, a name Google would not resolve, and a
-     * blanket grant, which has no document line, no breadth checkbox and no confirmation code and was the
-     * case that opened with a panel of empty space under it.
-     *
-     * <p>Cases 7 and 8 are the caller block added in PRP 02, and they are here because both of its rows
-     * are new height. A one-line command must cost one line; a command longer than the window is wide must
-     * stop at three and scroll, never grow the window. And an undeclared caller adds a wrapped amber
-     * paragraph, which is the tallest that block ever gets.
-     */
     private static List<PreviewCase> cases() {
         var doc = new ResourceRef("sheets", "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
                 "Supplier payments tracking (master)");
         return List.of(
-                new PreviewCase("1-read", ask(Tier.READ, doc, "read", false)),
-                new PreviewCase("2-mutate", ask(Tier.MUTATE, doc, "update 12 cells", false)),
-                new PreviewCase("3-destructive", ask(Tier.DESTRUCTIVE, doc, "share with an outside address", false)),
-                new PreviewCase("4-unresolved",
-                        ask(Tier.MUTATE, new ResourceRef("drive", "0AKz9pQrSTuvUk9PVA", null), "move", false)),
-                new PreviewCase("5-blanket", ask(Tier.READ, null, "read anything", true)),
-                new PreviewCase("6-rejected", ask(Tier.DESTRUCTIVE, doc, "delete", false), "notthisone"),
-                new PreviewCase("7-long-command", with(ask(Tier.MUTATE, doc, "update 12 cells", false),
-                        new CallerInfo(LONG_DIR, LONG_CMD, true))),
-                new PreviewCase("8-undeclared", with(ask(Tier.MUTATE, doc, "update 12 cells", false),
-                        CallerInfo.UNKNOWN)),
-                new PreviewCase("9-scraped", with(ask(Tier.READ, doc, "read", false),
-                        new CallerInfo("C:\\user\\code\\uskoag\\wallet",
-                                "uskoag.gservices.SpreadsheetCli get 1BxiMVs0XRA5nF --range Sheet1!A1", false))),
-                new PreviewCase("10-document-only", ask(Tier.MUTATE, doc, "update 12 cells", false), null,
-                        List.of(javafx.scene.input.KeyCode.F3)),
-                new PreviewCase("11-anchor-shell", ask(Tier.MUTATE, doc, "update 12 cells", false), null,
+                new PreviewCase("1-read", tool(Tier.READ, doc, "read")),
+                new PreviewCase("2-mutate", tool(Tier.MUTATE, doc, "update 12 cells")),
+                new PreviewCase("3-destructive", tool(Tier.DESTRUCTIVE, doc, "share with an outside address")),
+                new PreviewCase("4-unresolved", tool(Tier.MUTATE, new ResourceRef("drive", "0AKz9pQrSTuvUk9PVA", null), "move")),
+                new PreviewCase("5-anchor-moved", tool(Tier.MUTATE, doc, "update 12 cells"), null,
                         List.of(javafx.scene.input.KeyCode.UP)),
-                new PreviewCase("12-no-chain", withChain(ask(Tier.MUTATE, doc, "update 12 cells", false),
-                        List.of(), -1)));
+                new PreviewCase("6-policy-quiet", cli(Tier.READ, null, "stand a rule allowing READ on EVERYTHING",
+                        "blanket permission — READ on every account", true)),
+                new PreviewCase("7-policy-allow", cli(Tier.MUTATE, doc, "stand a rule allowing MUTATE",
+                        "spreadsheet", false)));
     }
 
-    /**
-     * A chain shaped like a real one: the tool, the shell the agent ran it in, the agent, the shell the agent
-     * was started from, the terminal, the desktop. The agent is suggested; the terminal and desktop cannot
-     * be picked.
-     */
-    private static List<AncestryHop> chain(Tier tier) {
-        var now = System.currentTimeMillis();
-        var top = tier.ceiling(true);
-        return List.of(
-                new AncestryHop(0, 48120, now - 2_000, "uskoag-gsheetscli.exe", 0, "program", top),
-                new AncestryHop(1, 47704, now - 2_500, "bash.exe", 1, "shell", Math.min(30, top)),
-                new AncestryHop(2, 31880, now - 95 * 60_000L, "claude.exe", 14, "agent", top),
-                new AncestryHop(3, 30112, now - 3 * 3_600_000L, "cmd.exe", 15, "shell", Math.min(30, top)),
-                new AncestryHop(4, 9120, now - 26 * 3_600_000L, "tabby.exe", 61, "terminal", 0),
-                new AncestryHop(5, 6644, now - 50 * 3_600_000L, "explorer.exe", 212, "desktop", 0));
+    /** A tool's request, with this process's real chain standing in for the tool's. */
+    private static ApprovalAsk tool(Tier tier, ResourceRef res, String op) {
+        return new ApprovalAsk("req-9f21", "K7QM", "default", "a-sheets-tool", "someone@example.org", "sheets",
+                op, res, "spreadsheet", tier, 1,
+                new CallerInfo("C:\\work\\reports", "a-sheets-tool get 1BxiMVs0XRA5nF --range Sheet1!A1:Z400", true),
+                ProcessHandle.current().pid(), "invoice reconciliation, March", false,
+                Lineage.of(ProcessHandle.current().pid()).hops());
     }
 
-    private static ApprovalAsk withChain(ApprovalAsk a, List<AncestryHop> chain, int suggested) {
-        return new ApprovalAsk(a.requestId(), a.correlationCode(), a.profile(), a.appName(), a.account(),
-                a.api(), a.operation(), a.resource(), a.resourceKind(), a.tier(), a.itemCount(), a.caller(),
-                a.pid(), a.session(), a.requiresPassphrase(), chain, suggested);
-    }
-
-    private static final String LONG_DIR =
-            "C:\\user\\code\\projects\\quarterly review notes\\batch\\run-14";
-
-    private static final String LONG_CMD =
-            "uskoag-gsheetscli update 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms --email"
-            + " someone@example.org --range \"Sheet1!A2:M480\" --values-file"
-            + " C:\\user\\code\\reports-tool\\leads\\out\\round-3-classified.tsv --value-input-option"
-            + " USER_ENTERED --skip-if \"stage=='closed' || stage=='bounced'\" --json --no-live --retry 3";
-
-    private static ApprovalAsk with(ApprovalAsk a, CallerInfo c) {
-        return new ApprovalAsk(a.requestId(), a.correlationCode(), a.profile(), a.appName(), a.account(),
-                a.api(), a.operation(), a.resource(), a.resourceKind(), a.tier(), a.itemCount(), c,
-                a.pid(), a.session(), a.requiresPassphrase(), a.chain(), a.suggestedHop());
-    }
-
-    /** A blanket ask comes from the CLI's policy verbs, which carry no chain; every other case has one. */
-    private static ApprovalAsk ask(Tier tier, ResourceRef res, String op, boolean needsPhrase) {
-        return new ApprovalAsk("req-9f21", "K7QM", "uskoag", "uskoag-gsheetscli",
-                "someone@example.org", "sheets", op, res,
-                res == null ? "every resource" : "spreadsheet", tier, 1,
-                new CallerInfo("C:\\user\\code\\uskoag\\wallet",
-                        "uskoag-gsheetscli get 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-                        + " --range \"Sheet1!A1:Z400\"", true),
-                48120, "invoice reconciliation, March", needsPhrase,
-                res == null ? List.of() : chain(tier), res == null ? -1 : 2);
+    private static ApprovalAsk cli(Tier tier, ResourceRef res, String op, String kind, boolean wide) {
+        return new ApprovalAsk("cli", "CLI ", null, "uskoag-walletcli", "someone@example.org", "sheets", op, res,
+                kind, tier, 1, new CallerInfo("C:\\work\\reports", "uskoag-walletcli policy quiet --tier read", true),
+                ProcessHandle.current().pid(), "cli", wide);
     }
 }

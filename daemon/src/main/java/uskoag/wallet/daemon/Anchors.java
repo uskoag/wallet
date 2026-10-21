@@ -1,5 +1,7 @@
 package uskoag.wallet.daemon;
 
+import leasegate.core.access.KnownPrograms;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -30,18 +32,20 @@ import java.util.Set;
  */
 public final class Anchors {
 
-    /** Where a run of work usually lives: an agent or an editor that outlives the commands it spawns. */
-    private static final Set<String> AGENT = Set.of("claude.exe", "node.exe", "code.exe", "cursor.exe");
+    /** Where a run of work usually lives: an agent that outlives the commands it spawns. */
+    private static final Set<String> AGENT = KnownPrograms.AGENTS;
 
     /** Failing that, the window somebody is typing in. */
-    private static final Set<String> TERMINAL = Set.of("windowsterminal.exe", "tabby.exe", "wt.exe",
-            "alacritty.exe", "mintty.exe", "conemu64.exe", "powershell.exe", "pwsh.exe", "cmd.exe",
-            "bash.exe", "sh.exe", "zsh.exe", "fish.exe");
+    private static final Set<String> TERMINAL = union(KnownPrograms.TERMINAL_HOSTS, KnownPrograms.SHELLS);
 
     /** Never an anchor, whoever asks. A rule bound to the desktop shell is a rule bound to everything. */
-    static final Set<String> STOP = Set.of("explorer.exe", "services.exe", "wininit.exe",
-            "winlogon.exe", "svchost.exe", "lsass.exe", "csrss.exe", "smss.exe", "system",
-            "runtimebroker.exe", "taskhostw.exe", "userinit.exe", "dllhost.exe");
+    static final Set<String> STOP = KnownPrograms.SESSION_ROOTS;
+
+    private static Set<String> union(Set<String> a, Set<String> b) {
+        var out = new java.util.HashSet<>(a);
+        out.addAll(b);
+        return Set.copyOf(out);
+    }
 
     private static final int MAX_DEPTH = 25;
 

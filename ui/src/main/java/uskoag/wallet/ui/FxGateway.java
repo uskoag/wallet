@@ -5,6 +5,16 @@ import uskoag.wallet.daemon.ApprovalGateway;
 import uskoag.wallet.daemon.WalletCore;
 import uskoag.wallet.wire.ApprovalAnswer;
 import uskoag.wallet.wire.ApprovalAsk;
+import uskoag.wallet.wire.AncestryHop;
+import uskoag.wallet.wire.Match;
+import leasegate.core.access.Approval;
+import leasegate.core.access.PassphraseGate;
+import leasegate.core.access.ProcessTree;
+import leasegate.core.win.PeerIdentity;
+import leasegate.ui.FxApproval;
+
+import java.time.Instant;
+import java.util.Optional;
 
 /** The engine's route to a person: a real window, on the FX thread, with the worker blocked behind it. */
 public final class FxGateway implements ApprovalGateway {
@@ -15,9 +25,37 @@ public final class FxGateway implements ApprovalGateway {
         this.core = core;
     }
 
+    /**
+     * A tool's request goes to the shared approval window, where the person anchors the answer at a process
+     * in the caller's chain; a rule typed at the wallet's own command line only needs confirming.
+     */
     @Override
     public ApprovalAnswer ask(ApprovalAsk ask) {
-        return ApprovalWindow.ask(ask, core.settings, core.keyring::verify);
+        return ask(ask, core.settings, PassphraseGate.external(s -> core.keyring.verify(s.toCharArray())));
+    }
+
+    static ApprovalAnswer ask(ApprovalAsk ask, uskoag.wallet.daemon.WalletSettings settings, PassphraseGate passphrase) {
+        if (ask.chain().isEmpty()) return PolicyConfirm.ask(ask, settings, passphrase);
+
+        var links = ask.chain().stream().map(h -> new ProcessTree.RawLink(h.pid(), h.imagePath(),
+                h.startMillis() > 0 ? Optional.of(Instant.ofEpochMilli(h.startMillis())) : Optional.<Instant>empty()))
+                .toList();
+        var tree = ProcessTree.snapshot();
+        var nodes = tree.decorate(links);
+        var first = links.getFirst();
+        var request = new Approval.Request<>(Approval.Kind.ATTESTED,
+                new PeerIdentity(first.pid(), first.imagePath(), first.startInstant()), nodes, tree,
+                WalletScope.of(ask, settings.destructiveOps), ask.appName(), null, ask.correlationCode());
+        // Withdrawn before the client's own read timeout, so an answer never lands on a call already given up.
+        var decision = new FxApproval<>(passphrase, new WalletRules(settings), Look.BRAND)
+                .withTimeout(java.time.Duration.ofSeconds(PolicyConfirm.WAIT_SECONDS)).decide(request);
+        if (decision.isEmpty() || decision.get().anchor() == null) return ApprovalAnswer.deny();
+
+        var d = decision.get();
+        var anchor = d.anchor();
+        var id = AncestryHop.id(anchor.pid(), anchor.startInstant().map(Instant::toEpochMilli).orElse(0L));
+        return ApprovalAnswer.anchored(id, anchor.imageName() + " pid " + anchor.pid(),
+                Math.min(d.durationMinutes(), d.capMinutes()), d.scope().ops(), Match.ANY);
     }
 
     @Override
