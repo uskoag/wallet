@@ -204,20 +204,23 @@ public final class WalletCore {
             return AccessGrant.failed("wallet is locked, unlock it and retry");
         }
         touch();
-        var account = resolve(req.account());
-        if (account.isEmpty()) return AccessGrant.failed(noAccount(req.account()));
-
         // Verified first, declared only as a fallback, and which of the two was used is recorded. The
         // kernel's answer cannot be spoofed; the client's cannot be checked. Neither is allowed to refuse
         // the call — failing closed here would block honest tools and stop nobody.
         var verified = peerPid > 0;
+        // The chain first, before anything else costs time: a wrapper shell that only starts the next stage
+        // may already be gone a few milliseconds on, and a dead process's parent cannot be read by anyone.
+        var lineage = Lineage.of(verified ? peerPid : req.pid());
+        var account = resolve(req.account());
+        if (account.isEmpty()) return AccessGrant.failed(noAccount(req.account()));
+
         var anchor = Anchors.resolve(verified ? peerPid : req.pid(), req.sourcePid());
         if (anchor.warning() != null) Log.warn(anchor.warning());
 
         var label = sessionLabel(req.session(), anchor, verified);
         var api = GApi.of(req.api());
         var g = grants.issue(account.get(), req.profile(), req.appName(), api.alias,
-                anchor.known() ? anchor.id() : "unpinned-" + req.pid(), label, req.pid(), req.caller());
+                anchor.known() ? anchor.id() : "unpinned-" + req.pid(), label, req.pid(), req.caller(), lineage);
         return new AccessGrant(g.token(), "http://127.0.0.1:" + proxyPort + "/g/" + api.alias + "/",
                 account.get(), g.correlationCode(), 0L, null, null).withWarning(anchor.warning());
     }

@@ -43,6 +43,10 @@ public final class PolicyEngine {
     }
 
     public Ruling decide(String profile, String account, String session, Classification c) {
+        return decide(profile, account, session == null ? List.of() : List.of(session), c);
+    }
+
+    public Ruling decide(String profile, String account, java.util.Collection<String> lineage, Classification c) {
         if (!keyring.unlocked()) return Ruling.of(Verdict.DENY);
 
         var tier = c.tier();
@@ -51,7 +55,7 @@ public final class PolicyEngine {
         if (tier == Tier.READ && (res.isBrowse() || !settings.readRequiresRule)) return Ruling.of(Verdict.ALLOW);
         if (tier == Tier.MUTATE && !settings.mutateRequiresRule) return Ruling.of(Verdict.ALLOW);
 
-        var rule = matching(profile, account, session, res, tier);
+        var rule = matching(profile, account, lineage, res, tier);
         if (rule == null) return Ruling.of(Verdict.PROMPT);
 
         rule.opsUsed += tier == Tier.READ ? 0 : c.itemCount();
@@ -60,17 +64,47 @@ public final class PolicyEngine {
     }
 
     /** The live rule that covers this, or null. Expired and exhausted rules are swept as we pass them. */
-    public synchronized PolicyRule matching(String profile, String account, String session,
+    public PolicyRule matching(String profile, String account, String session, ResourceRef res, Tier tier) {
+        return matching(profile, account, session == null ? List.of() : List.of(session), res, tier);
+    }
+
+    /**
+     * @param lineage the caller's process and its ancestors, as anchor ids; a rule anchored at any of them
+     *                applies. A rule anchored at a process that has since exited is gone: the approval was
+     *                for what that process would start, and it will start nothing more.
+     */
+    public synchronized PolicyRule matching(String profile, String account, java.util.Collection<String> lineage,
                                             ResourceRef res, Tier tier) {
         var now = System.currentTimeMillis();
         var rules = keyring.data().rules();
         rules.removeIf(r -> r.expiresAt > 0 && now - r.expiresAt > 86_400_000L);
+        rules.removeIf(r -> !anchorAlive(r.session));
         for (var r : rules) {
             if (!r.live(now)) continue;
             if (!r.tier.atLeast(tier)) continue;
-            if (r.applies(profile, account, res.api(), res.id(), session)) return r;
+            if (r.applies(profile, account, res.api(), res.id(), lineage)) return r;
         }
         return null;
+    }
+
+    /**
+     * False only for a rule bound to a process that is provably gone: the pid no longer running, or running
+     * with a different start time because Windows reused the number. Anything else, including a session
+     * that is not a process id at all, is left alone.
+     */
+    static boolean anchorAlive(String session) {
+        if (session == null || !session.startsWith("proc-")) return true;
+        var parts = session.split("-");
+        if (parts.length != 3) return true;
+        try {
+            var pid = Long.parseLong(parts[1]);
+            var start = Long.parseLong(parts[2]);
+            var p = ProcessHandle.of(pid).filter(ProcessHandle::isAlive).orElse(null);
+            if (p == null) return false;
+            return start == 0 || p.info().startInstant().map(i -> i.toEpochMilli() == start).orElse(true);
+        } catch (NumberFormatException e) {
+            return true;
+        }
     }
 
     /** Turns what the person clicked into a standing rule, which is the only way a rule is ever born. */
@@ -99,6 +133,18 @@ public final class PolicyEngine {
         // for as long as this run lasts and not one minute longer". Passing no session still means
         // unbound, so nothing that did not ask for pinning acquires it.
         r.session = tier == Tier.DESTRUCTIVE || r.match == Match.ANY || r.resource == null ? session : null;
+        // Anchored by the person in the approval window: the rule covers whatever that process starts, on
+        // every api of this account, and ends when the process exits. An answer about one document stays
+        // unanchored unless its tier is irreversible, which has always been bound to the run.
+        if (answer.anchor() != null && r.session != null) {
+            r.session = answer.anchor();
+            r.anchorName = answer.note();
+            if (r.match == Match.ANY) {
+                r.api = null;
+                r.resource = null;
+                r.label = null;
+            }
+        }
         r.tier = tier;
         r.opsBudget = answer.ops();
         // Blanket is read off the rule itself — no resource id means every resource — rather than taken

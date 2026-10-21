@@ -56,7 +56,7 @@ public final class Gate {
     }
 
     public Decision decide(Grant grant, Classification c, Namer namer) {
-        var ruling = core.policy.decide(grant.profile(), grant.account(), grant.session(), c);
+        var ruling = core.policy.decide(grant.profile(), grant.account(), grant.lineageIds(), c);
         if (ruling.verdict() != Verdict.PROMPT) {
             /*
              * Name the document that was actually touched, which is NOT always the one the rule remembers.
@@ -149,7 +149,7 @@ public final class Gate {
             // The re-check that makes queueing cheap. Whoever was in front may have answered a question
             // broad enough to cover this one — that is the whole point of the "everything this run
             // touches" option — in which case this request never becomes a window at all.
-            var already = core.policy.matching(grant.profile(), grant.account(), grant.session(),
+            var already = core.policy.matching(grant.profile(), grant.account(), grant.lineageIds(),
                     c.resource(), c.tier());
             if (already != null) return uskoag.wallet.wire.ApprovalAnswer.once();
 
@@ -158,15 +158,35 @@ public final class Gate {
                 return uskoag.wallet.wire.ApprovalAnswer.denied("the wallet locked while this was queued");
             }
 
+            // The chain is shown so the person can anchor the answer at the agent rather than at this one
+            // command; read for descendant counts only now, when a window is actually going to open.
+            var hops = grant.lineage().hops(c.tier());
             var answer = core.gateway().ask(new ApprovalAsk(
                     UUID.randomUUID().toString().substring(0, 8), grant.correlationCode(), grant.profile(),
                     grant.appName(), grant.account(), c.resource().api(), c.operation(), c.resource(),
                     kind, c.tier(), c.itemCount(), grant.caller(), grant.pid(), grant.sessionOrLabel(),
-                    // An ordinary request names one document, so the tier decides: DESTRUCTIVE brings the
-                    // passphrase with it via settings, and nothing else needs to.
-                    false));
+                    // Anchored read and write need no passphrase: the anchor is the bound. DESTRUCTIVE
+                    // brings the passphrase with it via settings, whatever the breadth.
+                    false, hops, grant.lineage().suggested(hops)));
 
             if (!answer.allowed()) return answer;
+            // An anchor that is not in this caller's own chain is refused, whoever chose it: the window
+            // only offers the chain, so anything else did not come from the window.
+            if (answer.anchor() != null && !grant.lineageIds().contains(answer.anchor())) {
+                return uskoag.wallet.wire.ApprovalAnswer.denied("the chosen anchor is not an ancestor of the caller");
+            }
+            // And held to that anchor's own cap here, not only in the window that offered it.
+            if (answer.anchor() != null) {
+                var chosen = answer.anchor();
+                var hop = hops.stream().filter(h -> h.id().equals(chosen)).findFirst().orElse(null);
+                if (hop == null || !hop.selectable()) {
+                    return uskoag.wallet.wire.ApprovalAnswer.denied("that process cannot anchor an approval");
+                }
+                if (answer.minutes() <= 0 || answer.minutes() > hop.capMinutes()) {
+                    answer = new uskoag.wallet.wire.ApprovalAnswer(true, answer.remember(), answer.ops(),
+                            hop.capMinutes(), answer.match(), answer.note(), answer.anchor());
+                }
+            }
             if (answer.remember()) {
                 try {
                     core.policy.remember(grant.profile(), grant.account(), grant.session(),

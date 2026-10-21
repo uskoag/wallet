@@ -39,7 +39,7 @@ public final class Anchors {
             "bash.exe", "sh.exe", "zsh.exe", "fish.exe");
 
     /** Never an anchor, whoever asks. A rule bound to the desktop shell is a rule bound to everything. */
-    private static final Set<String> STOP = Set.of("explorer.exe", "services.exe", "wininit.exe",
+    static final Set<String> STOP = Set.of("explorer.exe", "services.exe", "wininit.exe",
             "winlogon.exe", "svchost.exe", "lsass.exe", "csrss.exe", "smss.exe", "system",
             "runtimebroker.exe", "taskhostw.exe", "userinit.exe", "dllhost.exe");
 

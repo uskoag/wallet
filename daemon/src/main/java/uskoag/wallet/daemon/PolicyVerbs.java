@@ -61,7 +61,7 @@ public final class PolicyVerbs {
 
     private String check(PolicyRequest r) {
         var res = new ResourceRef(r.api(), r.resource(), null);
-        var rule = core.policy.matching(r.profile(), r.account(), null, res, r.tier());
+        var rule = core.policy.matching(r.profile(), r.account(), (String) null, res, r.tier());
         return Json.of(rule == null
                 ? PolicyReply.of(false, "not-covered", "nothing standing covers " + r.tier() + " on " + r.resource())
                 : PolicyReply.of(true, "covered", rule.describe()));
@@ -70,7 +70,7 @@ public final class PolicyVerbs {
     private String allow(PolicyRequest r) throws IOException {
         var account = core.resolve(r.account()).orElse(r.account());
         var res = new ResourceRef(r.api(), r.resource(), null);
-        var existing = core.policy.matching(r.profile(), account, null, res, r.tier());
+        var existing = core.policy.matching(r.profile(), account, (String) null, res, r.tier());
         if (existing != null) return Json.of(PolicyReply.of(true, "already", existing.describe()));
 
         if (!core.gateway().interactive()) {

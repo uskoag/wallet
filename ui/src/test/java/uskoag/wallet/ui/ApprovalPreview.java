@@ -6,6 +6,7 @@ import javafx.embed.swing.SwingFXUtils;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import uskoag.wallet.daemon.WalletSettings;
+import uskoag.wallet.wire.AncestryHop;
 import uskoag.wallet.wire.ApprovalAsk;
 import uskoag.wallet.wire.CallerInfo;
 import uskoag.wallet.wire.ResourceRef;
@@ -84,6 +85,16 @@ public final class ApprovalPreview extends Application {
             });
             Thread.sleep(800);
         }
+        if (!c.keys().isEmpty()) {
+            Ui.onFx(() -> {
+                var stage = approvalStage();
+                if (stage != null) for (var k : c.keys()) stage.getScene().getRoot().fireEvent(
+                        new javafx.scene.input.KeyEvent(javafx.scene.input.KeyEvent.KEY_PRESSED, "", "", k,
+                                false, false, false, false));
+                return null;
+            });
+            Thread.sleep(500);
+        }
         Ui.onFx(() -> {
             var stage = approvalStage();
             if (stage == null) return report(c, "no window");
@@ -151,7 +162,36 @@ public final class ApprovalPreview extends Application {
                         CallerInfo.UNKNOWN)),
                 new PreviewCase("9-scraped", with(ask(Tier.READ, doc, "read", false),
                         new CallerInfo("C:\\user\\code\\uskoag\\wallet",
-                                "uskoag.gservices.SpreadsheetCli get 1BxiMVs0XRA5nF --range Sheet1!A1", false))));
+                                "uskoag.gservices.SpreadsheetCli get 1BxiMVs0XRA5nF --range Sheet1!A1", false))),
+                new PreviewCase("10-document-only", ask(Tier.MUTATE, doc, "update 12 cells", false), null,
+                        List.of(javafx.scene.input.KeyCode.F3)),
+                new PreviewCase("11-anchor-shell", ask(Tier.MUTATE, doc, "update 12 cells", false), null,
+                        List.of(javafx.scene.input.KeyCode.UP)),
+                new PreviewCase("12-no-chain", withChain(ask(Tier.MUTATE, doc, "update 12 cells", false),
+                        List.of(), -1)));
+    }
+
+    /**
+     * A chain shaped like a real one: the tool, the shell the agent ran it in, the agent, the shell the agent
+     * was started from, the terminal, the desktop. The agent is suggested; the terminal and desktop cannot
+     * be picked.
+     */
+    private static List<AncestryHop> chain(Tier tier) {
+        var now = System.currentTimeMillis();
+        var top = tier.ceiling(true);
+        return List.of(
+                new AncestryHop(0, 48120, now - 2_000, "uskoag-gsheetscli.exe", 0, "program", top),
+                new AncestryHop(1, 47704, now - 2_500, "bash.exe", 1, "shell", Math.min(30, top)),
+                new AncestryHop(2, 31880, now - 95 * 60_000L, "claude.exe", 14, "agent", top),
+                new AncestryHop(3, 30112, now - 3 * 3_600_000L, "cmd.exe", 15, "shell", Math.min(30, top)),
+                new AncestryHop(4, 9120, now - 26 * 3_600_000L, "tabby.exe", 61, "terminal", 0),
+                new AncestryHop(5, 6644, now - 50 * 3_600_000L, "explorer.exe", 212, "desktop", 0));
+    }
+
+    private static ApprovalAsk withChain(ApprovalAsk a, List<AncestryHop> chain, int suggested) {
+        return new ApprovalAsk(a.requestId(), a.correlationCode(), a.profile(), a.appName(), a.account(),
+                a.api(), a.operation(), a.resource(), a.resourceKind(), a.tier(), a.itemCount(), a.caller(),
+                a.pid(), a.session(), a.requiresPassphrase(), chain, suggested);
     }
 
     private static final String LONG_DIR =
@@ -166,9 +206,10 @@ public final class ApprovalPreview extends Application {
     private static ApprovalAsk with(ApprovalAsk a, CallerInfo c) {
         return new ApprovalAsk(a.requestId(), a.correlationCode(), a.profile(), a.appName(), a.account(),
                 a.api(), a.operation(), a.resource(), a.resourceKind(), a.tier(), a.itemCount(), c,
-                a.pid(), a.session(), a.requiresPassphrase());
+                a.pid(), a.session(), a.requiresPassphrase(), a.chain(), a.suggestedHop());
     }
 
+    /** A blanket ask comes from the CLI's policy verbs, which carry no chain; every other case has one. */
     private static ApprovalAsk ask(Tier tier, ResourceRef res, String op, boolean needsPhrase) {
         return new ApprovalAsk("req-9f21", "K7QM", "uskoag", "uskoag-gsheetscli",
                 "someone@example.org", "sheets", op, res,
@@ -176,6 +217,7 @@ public final class ApprovalPreview extends Application {
                 new CallerInfo("C:\\user\\code\\uskoag\\wallet",
                         "uskoag-gsheetscli get 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
                         + " --range \"Sheet1!A1:Z400\"", true),
-                48120, "invoice reconciliation, March", needsPhrase);
+                48120, "invoice reconciliation, March", needsPhrase,
+                res == null ? List.of() : chain(tier), res == null ? -1 : 2);
     }
 }

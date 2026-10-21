@@ -6,8 +6,25 @@ package uskoag.wallet.wire;
  * <p>{@code ops} before {@code minutes}: whichever limit is reached first stops it and re-prompts.
  * "Approved: up to 50 deletions under Shared Documents, next 20 minutes" is a sentence you can evaluate.
  * "Approved for 20 minutes" is not.
+ *
+ * @param anchor the process the approval was anchored to ({@link AncestryHop#id()}), or null. When set, the
+ *               rule covers whatever that process starts and nothing else, and ends when it exits.
  */
-public record ApprovalAnswer(boolean allowed, boolean remember, int ops, int minutes, Match match, String note) {
+public record ApprovalAnswer(boolean allowed, boolean remember, int ops, int minutes, Match match, String note,
+                             String anchor) {
+
+    public ApprovalAnswer(boolean allowed, boolean remember, int ops, int minutes, Match match, String note) {
+        this(allowed, remember, ops, minutes, match, note, null);
+    }
+
+    /**
+     * Anchored at a process: with {@code match} ANY, everything that process starts at this tier; with EXACT,
+     * this one document. {@code anchorName} is what a rule listing shows for the process ("claude.exe pid
+     * 4120"), carried in {@code note}, which an approval otherwise leaves empty.
+     */
+    public static ApprovalAnswer anchored(String anchor, String anchorName, int minutes, int ops, Match match) {
+        return new ApprovalAnswer(true, true, ops, minutes, match, anchorName, anchor);
+    }
 
     public static ApprovalAnswer deny() {
         return new ApprovalAnswer(false, false, 0, 0, Match.EXACT, null);

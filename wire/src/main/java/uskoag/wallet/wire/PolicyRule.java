@@ -29,6 +29,12 @@ public final class PolicyRule {
      */
     public String label;
 
+    /**
+     * What a person reads for {@code session} when it is a process: "claude.exe pid 4120". Advisory, like
+     * {@link #label}; the session id is what matches.
+     */
+    public String anchorName;
+
     public Tier tier = Tier.READ;
     public Match match = Match.EXACT;
     public long expiresAt, createdAt, lastUsed;
@@ -50,8 +56,20 @@ public final class PolicyRule {
     }
 
     public boolean applies(String reqProfile, String reqAccount, String reqApi, String reqResource, String reqSession) {
+        return applies(reqProfile, reqAccount, reqApi, reqResource,
+                reqSession == null ? java.util.List.of() : java.util.List.of(reqSession));
+    }
+
+    /**
+     * @param lineage the caller's process and every ancestor, as anchor ids. A rule bound to a process
+     *                applies when that process is ANY of them, not only the one the wallet would have
+     *                guessed: a person who anchored at the agent means everything under the agent, and a
+     *                guess that landed one hop lower must not make the rule silently miss.
+     */
+    public boolean applies(String reqProfile, String reqAccount, String reqApi, String reqResource,
+                           java.util.Collection<String> lineage) {
         return wild(profile, reqProfile) && wild(account, reqAccount) && wild(api, reqApi)
-                && (session == null || session.equals(reqSession))
+                && (session == null || lineage.contains(session))
                 && (resource == null || match.test(resource, reqResource));
     }
 
@@ -86,6 +104,7 @@ public final class PolicyRule {
         // revoke, and four asterisks are easy to skim past as "unset" when they mean the opposite.
         if (blanket()) {
             return tier + "  EVERYTHING on " + (account == null ? "every account" : account)
+                    + (anchorName == null ? "" : "  under " + anchorName)
                     + "  [" + (opsBudget >= 0 ? (opsBudget - opsUsed) + " ops left" : "unlimited ops")
                     + ", " + until() + "]";
         }

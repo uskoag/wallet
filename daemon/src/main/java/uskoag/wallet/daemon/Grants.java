@@ -20,12 +20,12 @@ public final class Grants {
     private final Map<String, Grant> live = new ConcurrentHashMap<>();
 
     public Grant issue(String account, String profile, String appName, String api, String session,
-                       String sessionLabel, long pid, uskoag.wallet.wire.CallerInfo caller) {
+                       String sessionLabel, long pid, uskoag.wallet.wire.CallerInfo caller, Lineage lineage) {
         var raw = new byte[24];
         RNG.nextBytes(raw);
         var g = new Grant(HexFormat.of().formatHex(raw), account, profile, appName, api, session,
                 sessionLabel, CorrelationCode.next(), pid, uskoag.wallet.wire.CallerInfo.orUnknown(caller),
-                System.currentTimeMillis());
+                System.currentTimeMillis(), lineage == null ? Lineage.NONE : lineage);
         live.put(g.token(), g);
         return g;
     }

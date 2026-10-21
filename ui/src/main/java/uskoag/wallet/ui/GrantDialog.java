@@ -92,7 +92,7 @@ public final class GrantDialog {
         ((javafx.scene.control.TextField) search.node).textProperty()
                 .addListener((o, was, is) -> filter.run());
 
-        var add = button("Add selected to the list below");
+        var add = button("F5 · Add selected to the list below");
         Runnable addPicked = () -> {
             var picked = results.getSelectionModel().getSelectedItems();
             if (picked.isEmpty()) return;
@@ -102,9 +102,6 @@ public final class GrantDialog {
             area.setText(String.join("\n", have));
         };
         add.attr(b -> b.setOnAction(e -> addPicked.run()));
-        results.setOnKeyPressed(e -> {
-            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) addPicked.run();
-        });
         results.setOnMouseClicked(e -> {
             if (e.getClickCount() == 2) addPicked.run();
         });
@@ -119,7 +116,7 @@ public final class GrantDialog {
                 search,
                 luvjfx.Fx.fx(results),
                 hbox().spacing(8).nodes(add,
-                        label("Enter or double-click also adds")
+                        label("double-click also adds")
                                 .style("-fx-font-size: 11px; -fx-text-fill: #777;")),
                 label("Scopes to request").style("-fx-font-weight: bold; -fx-padding: 10 0 2 0;"),
                 label("Everything here becomes its own group with its own token and its own expiry."
@@ -133,8 +130,11 @@ public final class GrantDialog {
         ((TextArea) custom.node).textProperty().addListener((o, was, is) -> recount.run());
         recount.run();
 
-        var go = button("Grant").defaultButton(true);
-        var cancel = button("Cancel").cancelButton(true);
+        var go = button("F2 · Grant");
+        var cancel = button("Esc · Cancel");
+        // Only function keys act here: no default button, nothing that Enter or Space on a focused button
+        // could fire, because a wallet window must not be answered by text meant for another one.
+        for (var b : List.of(go, cancel, add)) ((javafx.scene.control.Button) b.node).setFocusTraversable(false);
         go.attr(b -> b.setOnAction(e -> {
             var chosen = new ArrayList<String>();
             for (var i = 0; i < boxes.size(); i++) if (boxes.get(i).isSelected()) chosen.add(groups.get(i).id());
@@ -151,11 +151,21 @@ public final class GrantDialog {
                 }),
                 footer,
                 hbox().spacing(8).nodes(go, cancel),
-                label("Space toggles   |   Tab moves   |   Enter grants   |   Esc cancels")
+                label("Space ticks a box   |   Tab moves   |   F5 adds   |   F2 grants   |   Esc cancels")
                         .style("-fx-font-size: 11px; -fx-text-fill: #777;"));
 
         var sc = Look.fit(frame, (javafx.scene.layout.Region) root.style(Ui.INK).node(), 640, null);
         Ui.escCloses(sc, stage, null);
+        sc.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            switch (e.getCode()) {
+                case F2 -> ((javafx.scene.control.Button) go.node).fire();
+                case F5 -> addPicked.run();
+                default -> {
+                    return;
+                }
+            }
+            e.consume();
+        });
         // Sized to the scope list rather than to a guess: this window is as tall as the account's consents
         // make it, so 640 was dead space for a short list and off the screen edge for a long one.
         stage.showAndWait();
