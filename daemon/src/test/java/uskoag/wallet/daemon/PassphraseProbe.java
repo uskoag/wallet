@@ -2,30 +2,30 @@ package uskoag.wallet.daemon;
 
 import uskoag.wallet.wire.WalletPaths;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Does the passphrase that opens the wallet also get past the windows that re-ask for it?
+ * A passphrase is any text that is not blank, stored exactly as typed, and a keyring sealed while
+ * passphrases were folded (letters only, upper case) still opens with what its owner types.
  *
- * <p>For a while it did not. Keyrings are sealed under {@link Keyring#normalise} — letters only, upper
- * case — so the copy held in memory is the folded form, while {@code verify} compared what was typed
- * against it on the nose. The real passphrase was refused and the only string that passed was one the
- * wallet has never shown anybody, which made the tray's open-access window impassable: two boxes
- * agreeing, the right passphrase in both, and a flat denial every time.
- *
- * <p>Nothing caught it because nothing exercised {@code verify} against a keyring created the way real
- * ones are created. That is all this does.
+ * <p>The old-style keyring is made the way the old code made one: sealed under {@link Keyring#normalise}
+ * of what was typed, which is exactly the key the old {@code create} derived. The probe then checks that
+ * the owner's real passphrase opens it and passes {@code verify}, that it can be changed to a passphrase
+ * with digits, spaces, punctuation and mixed case, and that from then on only that exact text works.
  *
  * <p>Not a JUnit test: it prints, and reading the words is the point. Run it with
- * {@code UKAG_WALLET_HOME} pointed at a scratch directory — it creates and rewrites a keyring, and it
- * refuses to run against the real one.
+ * {@code UKAG_WALLET_HOME} pointed at a scratch directory; it refuses to run against the real keyring.
  */
 public final class PassphraseProbe {
 
     private static int failures;
 
-    /** Mixed case with a digit in it, because that is what someone actually types. */
-    private static final String TYPED = "MySecret1";
+    /** What the owner of an old-style keyring actually types: mixed case with a digit in it. */
+    private static final String OLD_TYPED = "MySecret1";
+
+    /** A new passphrase nothing would have allowed before: spaces, digits, punctuation, accents, mixed case. */
+    private static final String NEW = "Grüne Wiese 42, ok?";
 
     public static void main(String[] args) throws Exception {
         var home = WalletPaths.home();
@@ -34,42 +34,67 @@ public final class PassphraseProbe {
                     + " — set UKAG_WALLET_HOME to a scratch directory first");
             System.exit(2);
         }
+        Files.deleteIfExists(WalletPaths.keyringFile());
         System.out.println("keyring: " + WalletPaths.keyringFile() + System.lineSeparator());
 
-        var fresh = new Keyring();
-        fresh.create(TYPED.toCharArray());
-        check("as created, typed identically", fresh.verify(TYPED.toCharArray()), true);
-        check("as created, all lower", fresh.verify(TYPED.toLowerCase().toCharArray()), true);
-        check("the folded form itself", fresh.verify("MYSECRET".toCharArray()), true);
-        check("plainly wrong", fresh.verify("SomethingElse".toCharArray()), false);
-        // Digits are dropped before the key is derived, so this opens the wallet too. verify has to
-        // agree with unlock about that, or the two disagree about what the passphrase even is.
-        check("only the digits differ", fresh.verify("MySecret9".toCharArray()), true);
-        check("letters differ, digits do not", fresh.verify("MySecret1x".toCharArray()), false);
+        // An old-style keyring, sealed under the folded form, as the old create did.
+        var old = new Keyring();
+        old.create(Keyring.normalise(OLD_TYPED.toCharArray()));
+        old.lock();
 
-        // The state the open-access window actually runs in: a keyring opened from disk, holding
-        // whichever form managed to open it rather than whatever was typed.
-        var opened = new Keyring();
-        opened.unlock(TYPED.toCharArray());
-        check("after unlock, typed identically", opened.verify(TYPED.toCharArray()), true);
-        check("after unlock, all lower", opened.verify(TYPED.toLowerCase().toCharArray()), true);
-        check("after unlock, wrong", opened.verify("nonsense".toCharArray()), false);
+        var k = new Keyring();
+        check("old-style keyring opens with what its owner types", opens(k, OLD_TYPED));
+        check("verify accepts what its owner types", k.verify(OLD_TYPED.toCharArray()));
+        check("verify refuses a wrong passphrase", !k.verify("SomethingElse".toCharArray()));
 
-        opened.changePassphrase(TYPED.toCharArray(), "SecondOne2".toCharArray());
-        check("after a change, the new one", opened.verify("SecondOne2".toCharArray()), true);
-        check("after a change, the old one", opened.verify(TYPED.toCharArray()), false);
+        refused("a blank new passphrase is refused", () -> k.changePassphrase(OLD_TYPED.toCharArray(), "   ".toCharArray()));
+        k.changePassphrase(OLD_TYPED.toCharArray(), NEW.toCharArray());
+        k.lock();
 
-        opened.lock();
-        check("locked, refuses everything", opened.verify("SecondOne2".toCharArray()), false);
+        var n = new Keyring();
+        check("after the change, the new passphrase opens exactly as typed", opens(n, NEW));
+        check("verify accepts the new passphrase as typed", n.verify(NEW.toCharArray()));
+        check("verify refuses its folded form", !n.verify(Keyring.normalise(NEW.toCharArray())));
+        n.lock();
+        check("its folded form does not open it", !opens(new Keyring(), "GRÜNEWIESEOK"));
+        check("the old passphrase no longer opens it", !opens(new Keyring(), OLD_TYPED));
+        check("nor does a different case", !opens(new Keyring(), NEW.toLowerCase()));
 
-        System.out.println(System.lineSeparator()
-                + (failures == 0 ? "all as expected" : failures + " NOT as expected"));
+        Files.deleteIfExists(WalletPaths.keyringFile());
+        var created = new Keyring();
+        refused("a blank passphrase cannot create a keyring", () -> created.create(new char[0]));
+        created.create("a1".toCharArray());
+        created.lock();
+        check("a two-character passphrase creates a keyring and opens it", opens(new Keyring(), "a1"));
+
+        System.out.println(System.lineSeparator() + (failures == 0 ? "ALL CHECKS PASSED" : failures + " FAILED"));
         System.exit(failures == 0 ? 0 : 1);
     }
 
-    private static void check(String what, boolean got, boolean want) {
-        var ok = got == want;
+    private static boolean opens(Keyring k, String phrase) {
+        try {
+            k.unlock(phrase.toCharArray());
+            return k.unlocked();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    interface Step {
+        void run() throws Exception;
+    }
+
+    private static void refused(String label, Step step) {
+        try {
+            step.run();
+            check(label, false);
+        } catch (Exception e) {
+            check(label + " (" + e.getMessage() + ")", true);
+        }
+    }
+
+    private static void check(String label, boolean ok) {
+        System.out.println((ok ? "ok   " : "FAIL ") + label);
         if (!ok) failures++;
-        System.out.printf("%-32s verify=%-5s expected=%-5s %s%n", what, got, want, ok ? "ok" : "<-- WRONG");
     }
 }

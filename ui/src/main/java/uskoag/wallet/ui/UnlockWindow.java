@@ -80,14 +80,6 @@ public final class UnlockWindow {
         var first = passwordField();
         var confirm = passwordField();
 
-        // Only when a keyring is being created. Unlocking an existing one must accept anything that was
-        // ever a valid passphrase, including one set before this rule existed — Keyring.unlock tries the
-        // typed form and the normalised form, and filtering here would remove the typed form from reach.
-        if (creating) {
-            PassphraseWindow.lettersOnly(first);
-            PassphraseWindow.lettersOnly(confirm);
-        }
-
         var status = label(ask.because() == null ? "" : ask.because());
         var go = button(creating ? "Create keyring" : "Unlock").defaultButton(true);
         var forgot = button("Forgot passphrase...");
@@ -110,9 +102,8 @@ public final class UnlockWindow {
                     fail(status, first, confirm, "The two entries did not match. Both boxes cleared - type it again.");
                     return;
                 }
-                if (creating && typed.length < Keyring.MIN_PASSPHRASE) {
-                    fail(status, first, confirm, "Use at least " + Keyring.MIN_PASSPHRASE
-                            + " characters. Both boxes cleared.");
+                if (creating && Keyring.blank(typed)) {
+                    fail(status, first, confirm, "The passphrase cannot be empty.");
                     return;
                 }
                 core.unlock(typed);
@@ -154,7 +145,7 @@ public final class UnlockWindow {
         confirm.attr(f -> f.setOnAction(e -> attempt.run()));
 
         body.nodes(heading, blurb, label(creating
-                ? "Passphrase (letters only - digits and symbols are dropped as you type, case doesn't matter)"
+                ? "Passphrase"
                 : ""), first);
         if (creating) body.nodes(label("Passphrase again"), confirm);
         var hint = creating ? "" : PassphraseHint.read();

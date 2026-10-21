@@ -54,14 +54,6 @@ public final class PassphraseWindow {
         var fresh = passwordField();
         var again = passwordField();
 
-        // The two new boxes accept letters only and show them upper case as they are typed, which is
-        // exactly what Keyring.normalise will store — so what is on screen is what will have to be
-        // typed again tomorrow, rather than something silently transformed on the way to disk.
-        // Deliberately not applied to `current`: an older keyring may be sealed with mixed case and
-        // punctuation, and filtering that box would make it impossible to type the passphrase that
-        // actually opens this wallet.
-        lettersOnly(fresh);
-        lettersOnly(again);
         var status = label("");
         var hint = textField().attr(f -> {
             f.setText(PassphraseHint.read());
@@ -93,9 +85,8 @@ public final class PassphraseWindow {
                             fresh, again);
                     return;
                 }
-                if (one.length < Keyring.MIN_PASSPHRASE) {
-                    fail(status, "Use at least " + Keyring.MIN_PASSPHRASE + " characters. The new boxes are"
-                            + " cleared.", fresh, again);
+                if (Keyring.blank(one)) {
+                    fail(status, "The new passphrase cannot be empty.", fresh, again);
                     return;
                 }
                 if (Arrays.equals(now, one)) {
@@ -131,8 +122,7 @@ public final class PassphraseWindow {
                         + " readable, and nothing at Google is touched — so this costs you nothing but"
                         + " the typing.").wrapText(true),
                 label("Current passphrase"), current,
-                label("New passphrase (letters only - digits and symbols are dropped as you type," +
-                        " case doesn't matter)"), fresh,
+                label("New passphrase"), fresh,
                 label("New passphrase again"), again,
                 label("Hint, shown on the unlock window (never the passphrase itself). To change only"
                         + " the hint, leave both new boxes empty.").wrapText(true), hint,
@@ -152,28 +142,5 @@ public final class PassphraseWindow {
         status.text(message);
         for (var f : clear) ((PasswordField) f.node).clear();
         if (clear.length > 0) clear[0].node.requestFocus();
-    }
-
-    /**
-     * Restricts a field to letters and folds them to upper case as they are typed.
-     *
-     * <p>Enforced at the field rather than only on submit, so a rejected character never becomes part
-     * of a passphrase somebody believes they chose. {@link Keyring#normalise} would drop it anyway; the
-     * difference is whether that happens visibly at the keyboard or invisibly on the way to disk.
-     *
-     * <p>Shared by both windows that set a passphrase, because a rule enforced in one of two places is
-     * a rule that holds until somebody uses the other one.
-     */
-    static void lettersOnly(luvjfx.FxPasswordField field) {
-        var f = (PasswordField) field.node;
-        f.setTextFormatter(new javafx.scene.control.TextFormatter<String>(change -> {
-            if (!change.isContentChange()) return change;
-            var cleaned = new StringBuilder();
-            for (var c : change.getText().toCharArray()) {
-                if (Character.isLetter(c)) cleaned.append(Character.toUpperCase(c));
-            }
-            change.setText(cleaned.toString());
-            return change;
-        }));
     }
 }

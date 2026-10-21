@@ -24,13 +24,16 @@ public final class Keyring {
     private static final int FLAG_DPAPI = 0x1, SALT_LEN = 32, HEADER = 8 + SALT_LEN;
 
     /**
-     * Deliberately low, and it is not the thing doing the work. Length here only slows an attacker who
-     * already holds the file, and to hold it they must already be on this machine as this user — at
-     * which point section 2 of the design applies and a longer passphrase buys little. The controls
-     * that matter are DPAPI binding the file to this machine, the approval gate, and the audit. A
-     * minimum that makes the wallet annoying to unlock costs more than it returns.
+     * Any text that is not blank is a passphrase: no length, character or case rule. Length only slows an
+     * attacker who already holds the file, and to hold it they must already be on this machine as this
+     * user. The controls that matter are DPAPI binding the file to this machine, the approval gate, and
+     * the audit.
      */
-    public static final int MIN_PASSPHRASE = 6;
+    public static boolean blank(char[] phrase) {
+        if (phrase == null) return true;
+        for (var c : phrase) if (!Character.isWhitespace(c)) return false;
+        return true;
+    }
 
     private SecretKey master;
     private byte[] salt;
@@ -59,34 +62,24 @@ public final class Keyring {
 
     /** First run: mint a fresh keyring, including the audit's own column key. */
     public synchronized void create(char[] phrase) throws IOException {
-        // Normalised here too, so a keyring is sealed under the same rule however it was created.
-        var clean = normalise(phrase);
-        if (clean.length < MIN_PASSPHRASE) {
-            Arrays.fill(clean, '\0');
-            throw new IOException("the passphrase must be at least " + MIN_PASSPHRASE + " letters."
-                    + " Letters only, and case does not matter.");
-        }
+        // Stored exactly as typed: any text that is not blank is a passphrase.
+        if (blank(phrase)) throw new IOException("the passphrase cannot be empty");
         salt = Aes.salt();
-        master = Aes.derive(clean, salt);
-        passphrase = clean;
+        master = Aes.derive(phrase, salt);
+        passphrase = phrase.clone();
         data = new KeyringData();
         data.auditKeyB64 = Base64.getEncoder().encodeToString(Aes.randomKey().getEncoded());
         save();
     }
 
     /**
-     * Opens the keyring, accepting the passphrase as typed or folded to upper case.
+     * Opens the keyring with the passphrase as typed, or else in the old folded form.
      *
-     * <p>New passphrases are letters only and case does not matter — they are normalised by
-     * {@link #normalise} before the key is derived. Existing keyrings were sealed with whatever was
-     * typed at the time, mixed case and all, and the bytes of the passphrase <em>are</em> the key: had
-     * this simply started normalising, every keyring predating the change would have stopped opening,
-     * with no diagnosis available beyond "wrong passphrase" and no way back except discarding the
-     * keyring and re-consenting every account.
-     *
-     * <p>So it tries what was typed, then the normalised form. One of them is the passphrase this
-     * keyring was actually sealed with. The cost is one extra key derivation on the path that was going
-     * to fail anyway, and it converges the moment the passphrase is next changed.
+     * <p>A passphrase is stored exactly as typed. For a while keyrings were sealed under {@link #normalise}
+     * instead (letters only, upper case), and the bytes of the passphrase <em>are</em> the key, so a keyring
+     * from that time opens only with the folded form. Trying both keeps those keyrings opening with the
+     * passphrase their owner actually types; it costs one extra key derivation on a path that was going to
+     * fail anyway, and it stops mattering the moment the passphrase is next changed.
      */
     public synchronized void unlock(char[] phrase) throws IOException {
         try {
@@ -108,15 +101,10 @@ public final class Keyring {
     }
 
     /**
-     * Letters only, upper case — the form a passphrase is stored under from now on.
-     *
-     * <p>Case is dropped rather than merely allowed, because "it should not matter whether I type small
-     * or capital" is only true if both derive the same key. Anything that is not a letter is dropped
-     * too, so that setting a passphrase cannot produce one that needs a chord to type. Both rules exist
-     * for the same reason: a passphrase typed several times a day by someone for whom modifier keys
-     * hurt should cost no modifier keys.
+     * The old folded form: letters only, upper case. No new keyring is sealed under it; it exists only so
+     * that a keyring sealed while it was the rule still opens. See {@link #unlock}.
      */
-    public static char[] normalise(char[] phrase) {
+    static char[] normalise(char[] phrase) {
         if (phrase == null) return new char[0];
         var out = new StringBuilder(phrase.length);
         for (var c : phrase) {
@@ -190,29 +178,17 @@ public final class Keyring {
      */
     public synchronized void changePassphrase(char[] current, char[] fresh) throws IOException {
         if (data == null) throw new IllegalStateException("unlock the wallet before changing its passphrase");
-        // The current one is checked as typed or normalised, for the same reason unlock accepts both:
-        // this keyring may predate the rule and still be sealed with mixed case.
-        if (!Arrays.equals(passphrase, current) && !Arrays.equals(passphrase, normalise(current))) {
-            throw new IOException("current passphrase does not match");
-        }
+        // The current one is checked as typed or in the old folded form, exactly as unlock accepts it.
+        if (!verify(current)) throw new IOException("current passphrase does not match");
 
-        // Normalised before anything is derived from it, so what is stored is what will be typed. Doing
-        // this at the boundary rather than in the dialog means a passphrase set from the CLI obeys the
-        // same rule as one set from the window, and neither can produce a keyring the other cannot open.
-        var clean = normalise(fresh);
-        if (clean.length < MIN_PASSPHRASE) {
-            Arrays.fill(clean, '\0');
-            throw new IOException("the new passphrase must be at least " + MIN_PASSPHRASE
-                    + " letters. Letters only — digits and punctuation are ignored, and case does not"
-                    + " matter, so it can be typed without a shift key.");
-        }
+        // Stored exactly as typed, here as everywhere, so the CLI and the window cannot disagree.
+        if (blank(fresh)) throw new IOException("the new passphrase cannot be empty");
 
         var previous = passphrase;
         salt = Aes.salt();
-        master = Aes.derive(clean, salt);
-        passphrase = clean.clone();
+        master = Aes.derive(fresh, salt);
+        passphrase = fresh.clone();
         save();
-        Arrays.fill(clean, '\0');
         Arrays.fill(previous, '\0');
     }
 
@@ -225,12 +201,9 @@ public final class Keyring {
      * and re-deriving would be a slow KDF run on the request path for no gain. Byte-wise constant time, so
      * a wrong answer leaks nothing about how much of it was right.
      *
-     * <p><b>As typed or folded, exactly like {@link #unlock}.</b> Every keyring created or re-keyed since
-     * passphrases became letters-only is sealed under {@link #normalise}, so the copy sitting in memory is
-     * the folded form — upper case, letters only — whatever was actually typed to open it. Comparing the
-     * typed passphrase against that on the nose refused the real passphrase and accepted only a string the
-     * wallet has never shown anybody, which left both windows that re-ask impassable: the two boxes agreed,
-     * the passphrase was right, and it kept answering that it was not.
+     * <p><b>As typed or folded, exactly like {@link #unlock}.</b> A keyring sealed while passphrases were
+     * folded holds the folded form in memory, whatever was typed to open it, so comparing only as typed
+     * would refuse its owner's real passphrase.
      *
      * <p>Folded against the STORED value, never fold against fold. The latter is a different and worse
      * rule: a keyring predating normalisation may be sealed with digits or punctuation in it, and its
