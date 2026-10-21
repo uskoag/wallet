@@ -213,15 +213,17 @@ public final class WalletApp extends Application {
      * argument for this being a rule rather than a mode is that it can be seen and revoked.
      */
     /**
-     * Whether a rule naming no document is in force: what the open-access window and {@code policy quiet}
-     * create. The tray glows harder while one is.
+     * Whether a rule naming no document and tied to no process is in force: what the open-access window
+     * and {@code policy quiet} create. An approval anchored at an agent session also names no document,
+     * but only that session's processes pass, so it does not count. The tray shows its lasers while one is.
      */
     private boolean openAccessInForce() {
         if (!wallet.core.keyring.unlocked()) return false;
         var now = System.currentTimeMillis();
         try {
             return wallet.core.policy.rules().stream()
-                    .anyMatch(r -> (r.resource == null || r.resource.isBlank()) && !r.expired(now));
+                    .anyMatch(r -> (r.resource == null || r.resource.isBlank())
+                            && (r.session == null || r.session.isBlank()) && !r.expired(now));
         } catch (RuntimeException e) {
             return false;
         }
