@@ -37,6 +37,19 @@ public final class Forward {
 
     public static void relay(HttpExchange x, GApi api, String path, String query,
                              Bodies bodies, String bearer, int proxyPort) throws IOException {
+        relay(x, api, path, query, bodies, bearer, proxyPort, null);
+    }
+
+    /** Largest response a tap is handed; anything longer is not a small JSON answer and is not tapped. */
+    private static final int TAP_LIMIT = 64 * 1024;
+
+    /**
+     * @param tap when non-null, receives the status and the whole response body (decompressed) if it was
+     *            at most {@link #TAP_LIMIT} bytes, after it has been relayed; the relay itself is unchanged
+     */
+    public static void relay(HttpExchange x, GApi api, String path, String query,
+                             Bodies bodies, String bearer, int proxyPort,
+                             java.util.function.BiConsumer<Integer, byte[]> tap) throws IOException {
         var uri = URI.create(api.upstream + path + (query == null || query.isBlank() ? "" : "?" + query));
         var b = HttpRequest.newBuilder(uri).timeout(Duration.ofMinutes(30));
 
@@ -69,9 +82,27 @@ public final class Forward {
             x.close();
             return;
         }
+        var captured = tap == null ? null : new java.io.ByteArrayOutputStream();
         try (var in = res.body(); var sink = x.getResponseBody()) {
             var buf = new byte[BUFFER];
-            for (var n = in.read(buf); n > 0; n = in.read(buf)) sink.write(buf, 0, n);
+            for (var n = in.read(buf); n > 0; n = in.read(buf)) {
+                sink.write(buf, 0, n);
+                if (captured != null) {
+                    if (captured.size() + n > TAP_LIMIT) captured = null;
+                    else captured.write(buf, 0, n);
+                }
+            }
+        }
+        if (captured != null) {
+            var bytes = captured.toByteArray();
+            if (res.headers().firstValue("content-encoding").orElse("").equalsIgnoreCase("gzip")) {
+                try (var gz = new java.util.zip.GZIPInputStream(new java.io.ByteArrayInputStream(bytes))) {
+                    bytes = gz.readAllBytes();
+                } catch (IOException e) {
+                    bytes = null;
+                }
+            }
+            if (bytes != null) tap.accept(res.statusCode(), bytes);
         }
     }
 

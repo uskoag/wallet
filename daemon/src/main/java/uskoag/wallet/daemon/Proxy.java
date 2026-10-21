@@ -121,7 +121,15 @@ public final class Proxy {
             }
             core.touch();
             var facts = new RequestFacts(api.alias, effectiveMethod(x), "/" + path, query, body.readable());
-            var classified = Rules.classify(facts);
+            var classified = FreshUploads.relax(Rules.classify(facts), facts, grant.account());
+            // A Drive upload's media is never buffered, but its opening bytes are peeked at so that the
+            // link-share and trash which follow an image upload are not taken for irreversible acts.
+            var uploadedImage = false;
+            if (FreshUploads.isDriveUpload(facts) && body.buffered() == null && body.prefix() == null) {
+                var peek = FreshUploads.peek(x.getRequestBody(), x.getRequestHeaders().getFirst("Content-Encoding"), FreshUploads.isResumablePut(facts));
+                body = new Bodies(null, peek.prefix(), null);
+                uploadedImage = peek.image();
+            }
             body = rewriteBatch(body, facts, api, path);
             if (TRACE) {
                 Log.info("trace " + x.getRequestMethod() + " /" + path
@@ -173,7 +181,10 @@ public final class Proxy {
             // from the other answers "how much does brokering cost?" without needing a direct-to-Google
             // baseline, which these tools can no longer produce since the app-key paths were removed.
             var upstreamStart = System.nanoTime();
-            Forward.relay(x, api, path, query, body, bearer, core.proxyPortValue());
+            var account = grant.account();
+            final var imageUpload = uploadedImage;
+            Forward.relay(x, api, path, query, body, bearer, core.proxyPortValue(),
+                    facts.path().startsWith("/upload/") ? (status, bytes) -> FreshUploads.noteUpload(facts, account, imageUpload, status, bytes) : null);
             if (TRACE) {
                 var upstreamMs = (System.nanoTime() - upstreamStart) / 1_000_000;
                 var waitedMs = waitedNs / 1_000_000;

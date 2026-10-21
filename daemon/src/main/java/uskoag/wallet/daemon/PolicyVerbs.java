@@ -123,24 +123,25 @@ public final class PolicyVerbs {
      * and deliberately so — {@code Tier.blanketMaxMinutes}, a day to read anything and four hours to change
      * anything, against a week and a day for a rule about one named document. The passphrase, because
      * breadth is where the blast radius is and a click can be synthesised by
-     * anything running as this user. And the refusal below: DESTRUCTIVE can never be blanket, because
-     * "delete anything, unattended, for an hour" is not a permission a person can meaningfully hold in
-     * mind, and the irreversible tier is the one place where being asked every time is the feature.
+     * anything running as this user.
      *
-     * <p>What is lost, stated plainly: while one of these stands, a poisoned document that reaches a tool
-     * can read (or write) anything that account can, and the first anyone knows of it is the audit. That
-     * is a real reduction and it is the one being asked for; the expiry is what keeps it from being
-     * permanent, and {@code policy list} is what keeps it from being invisible.
+     * <p>DESTRUCTIVE was refused here outright until 2026-09-23: "delete anything, unattended, for an
+     * hour" read as not a permission a person could meaningfully hold in mind, and the irreversible tier
+     * was the one place being asked every time was treated as the feature rather than the friction. He
+     * asked for it anyway, in as many words — see {@link uskoag.wallet.wire.Tier#blanketMaxMinutes} for
+     * the quote and the context it arrived in — so it is offered the same as MUTATE and READ, just held
+     * to its own tier's one-hour ceiling ({@code Tier.DESTRUCTIVE.blanketMaxMinutes}) rather than a wider
+     * one invented for the occasion. Nothing else about it is loosened: still one passphrase, still an
+     * expiry, still {@code policy list}, still revocable by id.
+     *
+     * <p>What is lost, stated plainly: while one of these stands, a poisoned document — or a bug — that
+     * reaches a tool can delete, move or re-share anything that account can touch, unattended, and the
+     * first anyone knows of it is the audit. That is a real reduction and it is the one being asked for;
+     * the one-hour expiry is what keeps it from being permanent, and {@code policy list} is what keeps it
+     * from being invisible while it stands.
      */
     private String quiet(PolicyRequest r, long peerPid) throws IOException {
         var tier = r.tier();
-        if (tier == uskoag.wallet.wire.Tier.DESTRUCTIVE) {
-            return Json.of(PolicyReply.of(false, "refused",
-                    "there is no blanket irreversible permission, and there will not be. Delete, move and"
-                    + " share are approved one operation at a time, against a named document, with the"
-                    + " passphrase — that is the whole point of the tier. Use 'policy allow' for a"
-                    + " specific document instead."));
-        }
         if (!core.gateway().interactive()) {
             return Json.of(PolicyReply.of(false, "no-display", "cannot ask — the wallet has no display"));
         }

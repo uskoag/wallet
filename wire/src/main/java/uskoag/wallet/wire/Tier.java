@@ -15,7 +15,7 @@ public enum Tier {
     MUTATE(60 * 24, 60 * 4),
 
     /** delete, trash, move, re-parent, clear a large range, every permission change. Prompted and budgeted. */
-    DESTRUCTIVE(60, 0);
+    DESTRUCTIVE(60, 60);
 
     /**
      * The longest a permission of this tier may ever stand: a week to read, a day to change, an hour to do
@@ -35,13 +35,23 @@ public enum Tier {
 
     /**
      * The longest a rule covering EVERY document may stand — a day to read anything, four hours to change
-     * anything, and no such thing at all for the irreversible tier.
+     * anything, and — since 2026-09-23 — one hour to do anything irreversible, unattended, to everything.
      *
      * <p>Write was one hour and he raised it to four on 2026-08-04, for an unattended run. That is his
      * call and the trade is worth stating rather than burying: four hours is longer than anybody watches,
      * so for most of such a window the only thing standing between a poisoned document and everything
-     * these accounts can write is the audit, read afterwards. The irreversible tier is untouched, which is
-     * what keeps the blast radius to "wrong content" rather than "gone".
+     * these accounts can write is the audit, read afterwards.
+     *
+     * <p>The irreversible tier held out longest — this class and {@code PolicyVerbs.quiet} both said, in
+     * as many words, "there is no blanket irreversible tier and there will not be." He asked for it anyway,
+     * plainly, after a bulk move kept stopping at the tier's own 25-op / one-document budget and asking
+     * again for the same batch: "already approval mechanism is quite safe and asks so many approvals, I am
+     * satisfied to allow more elevated blanket approval (moving) with a cap of 1 hr." That is an informed
+     * call by the person the whole mechanism protects, not a default creeping wider on its own, so it is
+     * honoured as asked — capped at the tier's own ordinary ceiling ({@link #maxMinutes}, one hour) rather
+     * than invented wider, and everything else about the tier (the passphrase, the audit trail, the
+     * revoke-by-id) stays exactly as it was for a named-document destructive rule. What changes is only
+     * that the rule may now name no document at all.
      *
      * <p>Tighter than {@link #maxMinutes} because it is a different object. A per-document rule is bounded
      * by the document: the worst it can do is the worst that can be done to one file somebody looked at and
