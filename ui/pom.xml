@@ -25,6 +25,8 @@
              linux-aarch64) to build for a different target — Maven just downloads the artifact, so
              this works from any build machine regardless of its own OS. -->
         <javafx.classifier>win</javafx.classifier>
+        <!-- AOT off on a Mac (-Dwallet.aot=false): the second start of a JavaFX app with AOT dies in AOTLinkedClassBulkLoader on JDK 25.0.4.1, Apple silicon. Stopgap; cause in cdpai PRP 21. -->
+        <wallet.aot>true</wallet.aot>
     </properties>
 
     <dependencies>
@@ -43,17 +45,17 @@
         <dependency>
             <groupId>io.github.leasegate</groupId>
             <artifactId>leasegate-frame</artifactId>
-            <version>0.2-SNAPSHOT</version>
+            <version>0.2</version>
         </dependency>
         <dependency>
             <groupId>io.github.leasegate</groupId>
             <artifactId>leasegate-tray</artifactId>
-            <version>0.2-SNAPSHOT</version>
+            <version>0.2</version>
         </dependency>
         <dependency>
             <groupId>io.github.leasegate</groupId>
             <artifactId>leasegate-ui</artifactId>
-            <version>0.2-SNAPSHOT</version>
+            <version>0.2</version>
         </dependency>
 
         <!-- The classifier carries the natives as well as the classes; the plain artifact alone
@@ -156,9 +158,9 @@
                                 <goals><goal>exe</goal></goals>
                                 <configuration>
                                     <name>uskoag-wallet</name>
-                                    <jar>C:\user\code\uskoag\wallet\ui\target\uskoag-wallet.jar</jar>
+                                    <jar>${project.build.directory}/uskoag-wallet.jar</jar>
                                     <jvmMode>dll</jvmMode>
-                                    <aot>true</aot>
+                                    <aot>${wallet.aot}</aot>
                                     <!-- Memory (PRP 08): embeds ArcadeDB, so G1, always with its three caps; plain G1 on a 16-core
                                          machine commits ~59 MB of its own bookkeeping. -Xmx leaves room for a Drive transfer in flight.
                                          No G1PeriodicGC: the idle trim (Wallet.start) gives memory back once per idle stretch. -->

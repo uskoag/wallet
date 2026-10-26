@@ -119,7 +119,7 @@
                                 <goals><goal>exe</goal></goals>
                                 <configuration>
                                     <name>uskoag-walletcli</name>
-                                    <jar>C:\user\code\uskoag\wallet\cli\target\uskoag-walletcli.jar</jar>
+                                    <jar>${project.build.directory}/uskoag-walletcli.jar</jar>
                                     <jvmMode>dll</jvmMode>
                                     <aot>true</aot>
                                     <!-- One call, then it exits: a small heap, Serial, C1 only (PRP 08). -->
