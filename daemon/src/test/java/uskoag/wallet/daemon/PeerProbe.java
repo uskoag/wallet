@@ -30,9 +30,14 @@ public final class PeerProbe {
                 if (!ok) failures++;
             }
 
-            var child = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-                    "$c = New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1'," + port + ");"
-                    + " Start-Sleep -Seconds 6").start();
+            // A child that holds a connection open: PowerShell on Windows; elsewhere nc, which stays connected while
+            // its stdin (a pipe from this process) is open, and whose own pid is the socket's owner.
+            var windows = System.getProperty("os.name", "").toLowerCase().contains("win");
+            var child = (windows
+                    ? new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                        "$c = New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1'," + port + ");"
+                        + " Start-Sleep -Seconds 6")
+                    : new ProcessBuilder("nc", "127.0.0.1", String.valueOf(port))).start();
             try (var accepted = server.accept()) {
                 var found = TcpPeer.ownerOf(accepted.getPort(), port);
                 var ok = found.isPresent() && found.getAsLong() == child.pid();
