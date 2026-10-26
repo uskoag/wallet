@@ -17,6 +17,10 @@ public final class WalletLauncher {
     private WalletLauncher() {
     }
 
+    /** The wallet's launcher as it sits on PATH: a jr exe on Windows, a jr binary (or the link into its .app) elsewhere. */
+    public static final String LAUNCHER =
+            System.getProperty("os.name", "").toLowerCase().contains("win") ? "uskoag-wallet.exe" : "uskoag-wallet";
+
     public static Optional<WalletClient> ensureRunning() {
         var existing = WalletClient.ifRunning();
         return existing.isPresent() ? existing : start();
@@ -28,7 +32,7 @@ public final class WalletLauncher {
         // uskoag-gsheetscli it looks in gservices/spreadsheet_cli/target and finds nothing. Every
         // migrated tool therefore failed to start the wallet and fell through to the legacy app-key
         // prompt whenever the wallet happened not to be running already.
-        var exe = onPath("uskoag-wallet.exe");
+        var exe = onPath(LAUNCHER);
         if (exe.isPresent()) {
             try {
                 Files.createDirectories(WalletPaths.home());

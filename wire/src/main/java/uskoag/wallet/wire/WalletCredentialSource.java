@@ -48,7 +48,7 @@ public final class WalletCredentialSource implements CredentialSource {
     public boolean available() {
         return WalletClient.ifRunning().isPresent()
                 || java.nio.file.Files.exists(WalletPaths.keyringFile())
-                || WalletLauncher.onPath("uskoag-wallet.exe").isPresent()
+                || WalletLauncher.onPath(WalletLauncher.LAUNCHER).isPresent()
                 || WalletLauncher.walletJar().isPresent();
     }
 
