@@ -1,5 +1,6 @@
 package uskoag.wallet.daemon;
 
+import leasegate.core.peer.TcpPeer;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -12,8 +13,8 @@ import java.net.Socket;
 public final class PeerProbe {
 
     public static void main(String[] args) throws Exception {
-        System.out.println("available: " + PeerProcess.available()
-                + (PeerProcess.available() ? "" : "  (" + PeerProcess.unavailableReason() + ")"));
+        System.out.println("available: " + TcpPeer.available()
+                + (TcpPeer.available() ? "" : "  (" + TcpPeer.unavailableReason() + ")"));
         var failures = 0;
 
         try (var server = new ServerSocket(0, 4, InetAddress.getLoopbackAddress())) {
@@ -21,7 +22,7 @@ public final class PeerProbe {
 
             try (var client = new Socket(InetAddress.getLoopbackAddress(), port);
                  var accepted = server.accept()) {
-                var found = PeerProcess.of(client.getLocalPort(), port);
+                var found = TcpPeer.ownerOf(client.getLocalPort(), port);
                 var mine = ProcessHandle.current().pid();
                 var ok = found.isPresent() && found.getAsLong() == mine;
                 System.out.println((ok ? "  ok   " : "  FAIL ") + "self: expected pid " + mine
@@ -33,13 +34,13 @@ public final class PeerProbe {
                     "$c = New-Object Net.Sockets.TcpClient; $c.Connect('127.0.0.1'," + port + ");"
                     + " Start-Sleep -Seconds 6").start();
             try (var accepted = server.accept()) {
-                var found = PeerProcess.of(accepted.getPort(), port);
+                var found = TcpPeer.ownerOf(accepted.getPort(), port);
                 var ok = found.isPresent() && found.getAsLong() == child.pid();
                 System.out.println((ok ? "  ok   " : "  FAIL ") + "child: expected pid " + child.pid()
                         + ", got " + (found.isPresent() ? found.getAsLong() : "(none)"));
                 if (!ok) failures++;
 
-                var wrong = PeerProcess.of(accepted.getPort(), port + 1);
+                var wrong = TcpPeer.ownerOf(accepted.getPort(), port + 1);
                 var ok2 = wrong.isEmpty();
                 System.out.println((ok2 ? "  ok   " : "  FAIL ")
                         + "a connection to a different port is not matched");

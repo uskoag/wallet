@@ -1,5 +1,6 @@
 package uskoag.wallet.daemon;
 
+import leasegate.core.peer.TcpPeer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import uskoag.wallet.wire.Json;
@@ -144,7 +145,7 @@ public final class ControlServer {
         try {
             var remote = x.getRemoteAddress();
             if (remote == null || !remote.getAddress().isLoopbackAddress()) return 0;
-            return PeerProcess.of(remote.getPort(), x.getLocalAddress().getPort()).orElse(0);
+            return TcpPeer.ownerOf(remote.getPort(), x.getLocalAddress().getPort()).orElse(0);
         } catch (Exception e) {
             return 0;
         }

@@ -1,0 +1,45 @@
+# macOS proof for the wallet, on GitHub's Mac runners. Publishes nothing and needs no secrets.
+# - PeerProbe: the kernel names the process on the other end of a loopback connection (this process, then a
+#   child whose pid the probe knows, then a wrong port that must not match). Before the switch to the shared
+#   TcpPeer lookup this answered empty on every Mac.
+# - The jrexe profile builds the macOS binaries from a clean ~/.m2 (the snapshot dependency comes from
+#   Maven Central's snapshot repository, named in the root pom), and walletcli answers.
+name: macos
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+            javafx: mac-aarch64
+          - os: macos-15-intel
+            arch: x86_64
+            javafx: mac
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: build, with the macOS binaries
+        run: |
+          sw_vers; uname -m
+          mvn -B -ntp -DskipTests -Djrexe -Djr.platforms=macos -Djr.macosArchitecture=${{ matrix.arch }} -Djavafx.classifier=${{ matrix.javafx }} -Dwallet.aot=false install
+          file cli/target/jr/macos/uskoag-walletcli ui/target/jr/macos/uskoag-wallet
+      - name: PeerProbe (the kernel names the caller)
+        run: |
+          mvn -B -ntp -q -pl daemon test-compile dependency:build-classpath -Dmdep.outputFile="$RUNNER_TEMP/cp.txt"
+          java --enable-native-access=ALL-UNNAMED -cp "daemon/target/classes:daemon/target/test-classes:$(cat "$RUNNER_TEMP/cp.txt")" uskoag.wallet.daemon.PeerProbe | tee "$RUNNER_TEMP/probe.txt"
+          grep -q "ALL PASS" "$RUNNER_TEMP/probe.txt"
+      - name: walletcli answers
+        run: cli/target/jr/macos/uskoag-walletcli --help

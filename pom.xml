@@ -47,6 +47,16 @@
         <enforcer.plugin.ver>3.4.1</enforcer.plugin.ver>
     </properties>
 
+    <!-- A dependency at -SNAPSHOT is published on Maven Central's snapshot repository, so a clean machine needs it named. -->
+    <repositories>
+        <repository>
+            <id>central-snapshots</id>
+            <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+            <releases><enabled>false</enabled></releases>
+            <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+    </repositories>
+
     <build>
         <pluginManagement>
             <plugins>
