@@ -3,7 +3,8 @@
 #   child whose pid the probe knows, then a wrong port that must not match). Before the switch to the shared
 #   TcpPeer lookup this answered empty on every Mac.
 # - The jrexe profile builds the macOS binaries from a clean ~/.m2 (the snapshot dependency comes from
-#   Maven Central's snapshot repository, named in the root pom), and walletcli answers.
+#   Maven Central's snapshot repository, named in the root pom; uskoag-gservices-oauth is on no repository, so it is
+#   built from uskoag/gservices first), and walletcli answers.
 name: macos
 
 on:
@@ -26,6 +27,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: uskoag/gservices
+          path: gservices
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -34,6 +39,7 @@ jobs:
       - name: build, with the macOS binaries
         run: |
           sw_vers; uname -m
+          (cd gservices && mvn -B -ntp -q -DskipTests -pl oauth -am install)
           mvn -B -ntp -DskipTests -Djrexe -Djr.platforms=macos -Djr.macosArchitecture=${{ matrix.arch }} -Djavafx.classifier=${{ matrix.javafx }} -Dwallet.aot=false install
           file cli/target/jr/macos/uskoag-walletcli ui/target/jr/macos/uskoag-wallet
       - name: PeerProbe (the kernel names the caller)
